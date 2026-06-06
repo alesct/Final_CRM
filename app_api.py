@@ -6,6 +6,10 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, accuracy_score
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_경로 = os.path.join(BASE_DIR, "adventureworks_clean.csv")
 
 애플리케이션 = FastAPI(title="어드벤처웍스 CRM 및 매출 예측 API")
 
@@ -62,7 +66,7 @@ def 시스템초기화():
     global 피처중요도, 분류_피처중요도, 모델_r2, 분류_정확도
 
     try:
-        원본_전체 = pd.read_csv("adventureworks_clean.csv")
+        원본_전체 = pd.read_csv(CSV_경로)
         원본_전체.columns = 원본_전체.columns.str.strip()
 
         url = "https://github.com/microsoft/powerbi-desktop-samples/raw/main/AdventureWorks%20Sales%20Sample/AdventureWorks%20Sales.xlsx"
