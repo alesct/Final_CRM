@@ -2,20 +2,23 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, accuracy_score
 
 애플리케이션 = FastAPI(title="어드벤처웍스 CRM 및 매출 예측 API")
 
 데이터프레임 = None
 원본_전체 = None
 예측모델 = None
+분류모델 = None
 국가목록 = []
 카테고리목록 = []
 피처중요도 = {}
+분류_피처중요도 = {}
 모델_r2 = 0.0
+분류_정확도 = 0.0
 피처_컬럼 = ["Order Quantity", "Unit Price", "Standard Cost", "Month_num", "Category_enc", "Country_enc"]
 
 계절_월_매핑 = {
@@ -44,9 +47,19 @@ class 시뮬레이션입력(BaseModel):
     선택카테고리: str
 
 
+class 분류입력(BaseModel):
+    주문수량: int
+    제품단가: float
+    제조원가: float
+    월코드: int
+    선택국가: str
+    선택카테고리: str
+
+
 @애플리케이션.on_event("startup")
 def 시스템초기화():
-    global 데이터프레임, 원본_전체, 예측모델, 국가목록, 카테고리목록, 피처중요도, 모델_r2
+    global 데이터프레임, 원본_전체, 예측모델, 분류모델, 국가목록, 카테고리목록
+    global 피처중요도, 분류_피처중요도, 모델_r2, 분류_정확도
 
     try:
         원본_전체 = pd.read_csv("adventureworks_clean.csv")
@@ -81,6 +94,7 @@ def 시스템초기화():
             "Month_num": 난수.randint(1, 13, n),
             "Country": 난수.choice(나라들, n),
             "Category": 난수.choice(카테고리들, n),
+            "is_reseller": 난수.randint(0, 2, n),
             "CustomerKey": 난수.randint(1, 300, n),
             "OrderDateKey": 난수.randint(20130101, 20160101, n),
         })
@@ -94,8 +108,8 @@ def 시스템초기화():
     카테고리목록 = sorted(list(카테고리인코더.classes_))
 
     X = 데이터프레임[피처_컬럼]
-    y = 데이터프레임["Sales Amount"]
-    X_학습, X_검증, y_학습, y_검증 = train_test_split(X, y, test_size=0.2, random_state=42)
+    y_reg = 데이터프레임["Sales Amount"]
+    X_학습, X_검증, y_학습, y_검증 = train_test_split(X, y_reg, test_size=0.2, random_state=42)
     예측모델 = RandomForestRegressor(n_estimators=100, random_state=42)
     예측모델.fit(X_학습, y_학습)
     모델_r2 = round(float(r2_score(y_검증, 예측모델.predict(X_검증))), 4)
@@ -103,6 +117,17 @@ def 시스템초기화():
         피처: round(float(중요도), 4)
         for 피처, 중요도 in zip(피처_컬럼, 예측모델.feature_importances_)
     }
+
+    if "is_reseller" in 데이터프레임.columns:
+        y_clf = 데이터프레임["is_reseller"]
+        X_clf_학습, X_clf_검증, y_clf_학습, y_clf_검증 = train_test_split(X, y_clf, test_size=0.2, random_state=42)
+        분류모델 = RandomForestClassifier(n_estimators=100, random_state=42)
+        분류모델.fit(X_clf_학습, y_clf_학습)
+        분류_정확도 = round(float(accuracy_score(y_clf_검증, 분류모델.predict(X_clf_검증))), 4)
+        분류_피처중요도 = {
+            피처: round(float(중요도), 4)
+            for 피처, 중요도 in zip(피처_컬럼, 분류모델.feature_importances_)
+        }
 
 
 @애플리케이션.get("/api/metadata")
@@ -114,8 +139,39 @@ def 메타데이터조회():
         "서브카테고리목록": 서브카테고리목록,
         "총레코드수": len(데이터프레임),
         "모델R2": 모델_r2,
+        "분류정확도": 분류_정확도,
         "피처중요도": 피처중요도,
+        "분류피처중요도": 분류_피처중요도,
         "피처수": len(피처_컬럼),
+    }
+
+
+@애플리케이션.post("/api/predict/classify")
+def 고객분류예측(요청데이터: 분류입력):
+    if 분류모델 is None:
+        return {"예측결과": "B2C", "B2C확률": 0.7, "B2B확률": 0.3, "정확도": 0.0}
+
+    국가인덱스 = 국가목록.index(요청데이터.선택국가) if 요청데이터.선택국가 in 국가목록 else 0
+    카테고리인덱스 = 카테고리목록.index(요청데이터.선택카테고리) if 요청데이터.선택카테고리 in 카테고리목록 else 0
+
+    입력df = pd.DataFrame([{
+        "Order Quantity": 요청데이터.주문수량,
+        "Unit Price": 요청데이터.제품단가,
+        "Standard Cost": 요청데이터.제조원가,
+        "Month_num": 요청데이터.월코드,
+        "Category_enc": 카테고리인덱스,
+        "Country_enc": 국가인덱스,
+    }])
+
+    확률 = 분류모델.predict_proba(입력df)[0]
+    예측 = int(분류모델.predict(입력df)[0])
+
+    return {
+        "예측결과": "B2B" if 예측 == 1 else "B2C",
+        "B2C확률": round(float(확률[0]) * 100, 1),
+        "B2B확률": round(float(확률[1]) * 100, 1),
+        "정확도": 분류_정확도,
+        "피처중요도": 분류_피처중요도,
     }
 
 
@@ -210,12 +266,8 @@ def 크로스셀분석():
             for c, v in 카테고리_매출.items()
         ]
 
-    카테고리별_평균단가 = (
-        df.groupby("Category")["Unit Price"].mean().round(2).to_dict()
-    )
-    카테고리별_총매출 = (
-        df.groupby("Category")["Sales Amount"].sum().round(2).to_dict()
-    )
+    카테고리별_평균단가 = df.groupby("Category")["Unit Price"].mean().round(2).to_dict()
+    카테고리별_총매출 = df.groupby("Category")["Sales Amount"].sum().round(2).to_dict()
 
     return {
         "동반구매페어": 페어_목록[:10],
@@ -288,6 +340,7 @@ def 자전거서브카테고리분석():
         }
 
     return 결과
+
 
 @애플리케이션.post("/api/predict/strategy")
 def 전략예측실행(요청데이터: 시뮬레이션입력):
