@@ -34,7 +34,9 @@ def 시즌별_B2C_예측(수량, 단가, 원가, 계절_월, 국가목록_t, 카
             매출 = float(r.get("예측매출액", 0.0))
         except:
             매출 = float(수량 * 단가 * 1.1)
-        결과.append({"국가":국가,"예측매출":round(매출,2),"순수익":round(매출-(수량*원가),2)})
+        # B2C: cost ratio applied to predicted revenue (model predicts blended transaction total)
+        원가비율 = 원가 / 단가 if 단가 > 0 else 0.0
+        결과.append({"국가":국가,"예측매출":round(매출,2),"순수익":round(매출*(1-원가비율),2)})
     return pd.DataFrame(결과)
 
 @st.cache_data(ttl=30, show_spinner=False)
