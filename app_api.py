@@ -70,20 +70,23 @@ def 시스템초기화():
         print(f"CSV cargado: {len(원본_전체)} filas desde {CSV_경로}")
         원본_전체.columns = 원본_전체.columns.str.strip()
 
-        url = "https://github.com/microsoft/powerbi-desktop-samples/raw/main/AdventureWorks%20Sales%20Sample/AdventureWorks%20Sales.xlsx"
-
         if 원본_전체["Month_num"].max() == 0:
-            날짜_데이터 = pd.read_excel(url, sheet_name="Date_data")
-            판매_데이터 = pd.read_excel(url, sheet_name="Sales_data")
-            날짜_병합 = 판매_데이터[["OrderDateKey"]].merge(
-                날짜_데이터[["DateKey", "Month"]], left_on="OrderDateKey", right_on="DateKey", how="left"
-            )
-            월_순서 = ["January","February","March","April","May","June",
-                      "July","August","September","October","November","December"]
-            날짜_병합["Month_num"] = 날짜_병합["Month"].apply(
-                lambda x: 월_순서.index(x) + 1 if x in 월_순서 else 0
-            )
-            원본_전체["Month_num"] = 날짜_병합["Month_num"].values
+            try:
+                url = "https://github.com/microsoft/powerbi-desktop-samples/raw/main/AdventureWorks%20Sales%20Sample/AdventureWorks%20Sales.xlsx"
+                날짜_데이터 = pd.read_excel(url, sheet_name="Date_data")
+                판매_데이터 = pd.read_excel(url, sheet_name="Sales_data")
+                날짜_병합 = 판매_데이터[["OrderDateKey"]].merge(
+                    날짜_데이터[["DateKey", "Month"]], left_on="OrderDateKey", right_on="DateKey", how="left"
+                )
+                월_순서 = ["January","February","March","April","May","June",
+                          "July","August","September","October","November","December"]
+                날짜_병합["Month_num"] = 날짜_병합["Month"].apply(
+                    lambda x: 월_순서.index(x) + 1 if x in 월_순서 else 0
+                )
+                원본_전체["Month_num"] = 날짜_병합["Month_num"].values
+                print("Excel 날짜 데이터 로드 완료")
+            except Exception as ex:
+                print(f"Excel 로드 실패 (무시): {ex}")
 
         데이터프레임 = 원본_전체.copy()
     except Exception as e:
