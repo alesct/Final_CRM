@@ -67,6 +67,7 @@ def 시스템초기화():
 
     try:
         원본_전체 = pd.read_csv(CSV_경로)
+        print(f"CSV cargado: {len(원본_전체)} filas desde {CSV_경로}")
         원본_전체.columns = 원본_전체.columns.str.strip()
 
         url = "https://github.com/microsoft/powerbi-desktop-samples/raw/main/AdventureWorks%20Sales%20Sample/AdventureWorks%20Sales.xlsx"
@@ -85,7 +86,8 @@ def 시스템초기화():
             원본_전체["Month_num"] = 날짜_병합["Month_num"].values
 
         데이터프레임 = 원본_전체.copy()
-    except Exception:
+    except Exception as e:
+        print(f"ERROR cargando CSV: {e} — usando datos de fallback")
         난수 = np.random.RandomState(42)
         n = 1500
         나라들 = ["United States", "Australia", "Canada", "United Kingdom", "France", "Germany"]
