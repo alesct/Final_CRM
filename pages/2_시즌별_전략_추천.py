@@ -433,13 +433,14 @@ with 탭4:
         b2c_pct, b2b_pct, 예측결과, 정확도 = 70.0, 30.0, "B2C", 0.9999
         clf_피처중요도 = {}
 
+    결과_표시 = t("일반 고객") if 예측결과 == "B2C" else t("도매 대리점")
     결과색 = "#7b93a8" if 예측결과 == "B2C" else "#8B6F47"
     결과bg = "#eef2f5" if 예측결과 == "B2C" else "#f5f0eb"
 
     st.markdown(f"""
     <div style="text-align:center;padding:28px;background:{결과bg};border:2px solid {결과색};border-radius:8px;margin:20px 0;">
         <div style="font-family:'Cormorant',serif;font-size:64px;font-weight:700;color:{결과색};line-height:1;">
-            {예측결과}
+            {결과_표시}
         </div>
         <div style="font-family:'DM Sans',sans-serif;font-size:15px;color:#8c8480;margin-top:8px;">
             {t("예측 결과")} — {t("모델 정확도")} {정확도*100:.2f}%
@@ -448,9 +449,9 @@ with 탭4:
 
     ga, gb = st.columns(2)
     with ga:
-        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("B2C / B2B 확률 분포")}</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("고객 유형 확률 분포")}</span></div>', unsafe_allow_html=True)
         fig_clf = go.Figure(go.Pie(
-            labels=["B2C", "B2B"],
+            labels=[t("일반 고객"), t("도매 대리점")],
             values=[b2c_pct, b2b_pct],
             hole=0.55,
             marker=dict(colors=["#7b93a8","#8B6F47"], line=dict(color="#f7f5f2", width=3)),
@@ -482,9 +483,9 @@ with 탭4:
 
         st.markdown(f"""
         <div class="fin-card" style="margin-top:12px;">
-            <div class="fin-row"><span class="fin-label">{t("예측 결과")}</span><span class="fin-value" style="color:{결과색};">{예측결과}</span></div>
-            <div class="fin-row"><span class="fin-label">B2C {t("확률")}</span><span class="fin-value">{b2c_pct:.1f}%</span></div>
-            <div class="fin-row"><span class="fin-label">B2B {t("확률")}</span><span class="fin-value">{b2b_pct:.1f}%</span></div>
+            <div class="fin-row"><span class="fin-label">{t("예측 결과")}</span><span class="fin-value" style="color:{결과색};">{결과_표시}</span></div>
+            <div class="fin-row"><span class="fin-label">{t("일반 고객")} {t("확률")}</span><span class="fin-value">{b2c_pct:.1f}%</span></div>
+            <div class="fin-row"><span class="fin-label">{t("도매 대리점")} {t("확률")}</span><span class="fin-value">{b2b_pct:.1f}%</span></div>
             <div class="fin-row"><span class="fin-label">{t("모델 정확도")}</span><span class="fin-value">{정확도*100:.2f}%</span></div>
             <div class="fin-row"><span class="fin-label">{t("알고리즘")}</span><span class="fin-value">Random Forest Classifier</span></div>
             <div class="fin-row"><span class="fin-label">{t("트리 수")}</span><span class="fin-value">100</span></div>
