@@ -16,6 +16,11 @@ def 메타조회():
     except: return {"국가목록":["Australia","Canada","France","Germany","United Kingdom"],"카테고리목록":["Accessories","Bikes","Clothing","Components"],"총레코드수":0,"모델R2":0.0,"피처중요도":{},"피처수":6}
 
 @st.cache_data(ttl=300, show_spinner=False)
+def 국가단가범위조회():
+    try: return requests.get(f"{서버주소}/api/country/price_range", timeout=5).json()
+    except: return {}
+
+@st.cache_data(ttl=300, show_spinner=False)
 def csv_로드():
     기본경로 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "adventureworks_clean.csv")
     if os.path.exists(기본경로): return pd.read_csv(기본경로)
@@ -52,6 +57,7 @@ def 국가별_전체예측(수량, 단가, 원가, 월, 국가목록_t, is_resel
 국가목록 = 메타["국가목록"]
 logo_base64 = get_base64_image("logo.png")
 원본df = csv_로드()
+국가단가_데이터 = 국가단가범위조회()
 
 if "lang" not in st.session_state:
     st.session_state["lang"] = "ko"
@@ -72,14 +78,14 @@ if lang != "ko":
         "세계 판매 지도 — 국가별 매출 현황", "총매출($)",
         "판매 계획 설정 — 수량·단가·국가를 선택하면 AI가 수익을 예측합니다",
         "거래 유형", "일반 개인 고객", "도매 및 대리점", "판매 카테고리", "서브카테고리", "전체 (평균)",
-        "수량", "단가 ($)", "원가 ($)", "분석 월", "국가", "전체 국가",
+        "수량", "단가 ($)", "원가 ($)", "국가", "전체 국가",
         "카테고리", "매출 산출 방식", "개", "제품 단가", "예측 총 매출", "총 제조 원가", "마진율", "순수익 추정",
         "도매 매출", "총 원가", "순수익", "주문 수량", "금액 ($)", "예측 매출", "구매 수량", "예측 매출 ($)",
         "전체 국가 비교 — 동일 조건으로 국가별 예측 매출 및 순수익", "국가별 예측 계산 중…",
         "예측 매출 ($)", "총 원가 ($)", "순수익 ($)",
         "3D 예측 곡면 — 수량 × 단가 × 예측 매출",
-        "X축: 수량, Y축: 단가 범위 (현재 설정 ±50%), Z축: AI 예측 매출. 드래그로 회전하세요.",
-        "예측매출($)", "순수익($)", "단가($)",
+        "X축: 수량, Y축: 국가별 실제 단가 범위, Z축: AI 예측 매출. 드래그로 회전하세요.",
+        "예측매출($)", "순수익($)", "단가($)", "국가별 실제 단가 범위 기준",
     ], lang)
 
 top1, top2 = st.columns([6, 1])
@@ -96,9 +102,12 @@ st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:24px;'>{t('Ad
 
 탭1, 탭2 = st.tabs([t("실적 현황 — 실제 데이터"), t("예측 시뮬레이션 — 판매 계획")])
 
+# ══════════════════════════════════════════════════════════════════════
+# TAB 1 — 실적 현황
+# ══════════════════════════════════════════════════════════════════════
 with 탭1:
     if 원본df is None:
-        st.error(t("adventureworks_clean.csv 파일을 찾을 수 없습니다. 프로젝트 루트 디렉토리를 확인해주세요."))
+        st.error("adventureworks_clean.csv 파일을 찾을 수 없습니다.")
     else:
         df = 원본df.copy()
         매출컬럼 = next((c for c in df.columns if c.lower().replace(" ","").replace("_","") in ["salesamount","salesamt"]), None)
@@ -211,6 +220,9 @@ with 탭1:
                 paper_bgcolor="rgba(0,0,0,0)",height=380,margin=dict(l=0,r=0,t=10,b=0))
             st.plotly_chart(fig_map,use_container_width=True)
 
+# ══════════════════════════════════════════════════════════════════════
+# TAB 2 — 예측 시뮬레이션
+# ══════════════════════════════════════════════════════════════════════
 with 탭2:
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("판매 계획 설정 — 수량·단가·국가를 선택하면 AI가 수익을 예측합니다")}</span></div>', unsafe_allow_html=True)
 
@@ -229,7 +241,7 @@ with 탭2:
         "Clothing":["Jerseys","Shorts","Gloves","Vests","Caps","Socks"],
     }
 
-    sim1,sim2,sim3 = st.columns(3)
+    sim1,sim2,sim3,sim4 = st.columns(4)
     with sim1:
         고객유형 = st.radio(t("거래 유형"), [t("일반 개인 고객"), t("도매 및 대리점")], horizontal=True)
     with sim2:
@@ -237,28 +249,39 @@ with 탭2:
     with sim3:
         서브목록 = 카테고리별_서브.get(선택카테고리,[])
         선택서브카테고리 = st.selectbox(t("서브카테고리"), [t("전체 (평균)")]+서브목록, key="sim_sub")
+    with sim4:
+        선택국가 = st.selectbox(t("국가"), [t("전체 국가")]+국가목록, key="sim_country")
 
     is_reseller = 고객유형 == t("도매 및 대리점")
-    이전키 = f"이전_{선택카테고리}_{선택서브카테고리}"
-    if st.session_state.get("이전선택키") != 이전키:
-        if 선택서브카테고리 not in [t("전체 (평균)"), "전체 (평균)"] and 선택서브카테고리 in 서브카테고리_단가표:
+    기본국가 = 국가목록[0] if 선택국가 == t("전체 국가") else 선택국가
+
+    # ── 단가/원가 초기값: 선택 국가의 실제 평균 단가 우선 적용 ──────
+    이전키 = f"이전_{선택카테고리}_{선택서브카테고리}_{기본국가}"
+    if st.session_state.get("p1_이전선택키") != 이전키:
+        # 1순위: 국가별 실제 데이터
+        국가_cat_data = 국가단가_데이터.get(기본국가, {}).get(선택카테고리, {})
+        if 국가_cat_data and 국가_cat_data.get("mean", 0) > 0:
+            기본단가 = int(국가_cat_data["mean"])
+            기본원가 = max(1, int(기본단가 * 0.6))
+        # 2순위: 서브카테고리 하드코딩표
+        elif 선택서브카테고리 not in [t("전체 (평균)"), "전체 (평균)"] and 선택서브카테고리 in 서브카테고리_단가표:
             기본단가, 기본원가 = 서브카테고리_단가표[선택서브카테고리]
         else:
             기본단가, 기본원가 = 462, 250
         st.session_state["sim_price"] = 기본단가
         st.session_state["sim_cost"] = 기본원가
-        st.session_state["이전선택키"] = 이전키
+        st.session_state["p1_이전선택키"] = 이전키
 
-    p1,p2,p3,p4 = st.columns(4)
+    p1,p2,p3 = st.columns(3)
     with p1: 수량 = st.slider(t("수량"), 1, 100 if is_reseller else 6, 20 if is_reseller else 1, key="sim_qty")
     with p2: 단가 = st.number_input(t("단가 ($)"), min_value=1, key="sim_price", value=st.session_state.get("sim_price",462))
     with p3: 원가 = st.number_input(t("원가 ($)"), min_value=1, key="sim_cost", value=st.session_state.get("sim_cost",250))
-    with p4: 선택국가 = st.selectbox(t("국가"), [t("전체 국가")]+국가목록, key="sim_country")
-    월 = 6  # 월 고정 (모델에서 중요도 낮음)
-    if is_reseller:
-        st.markdown(f"<p style='color:#8c8480;font-size:12px;margin:-10px 0 10px;'>{t('단가')} = {t('정상가')} (${단가:,}) → {t('도매 실제 청구단가')} ${int(단가*0.85):,} (15% {t('할인 적용')})</p>", unsafe_allow_html=True)
 
-    기본국가 = 국가목록[0] if 선택국가 == t("전체 국가") else 선택국가
+    월 = 6  # 월 고정
+
+    if is_reseller:
+        st.markdown(f"<p style='color:#8c8480;font-size:12px;margin:-10px 0 10px;'>{t('단가')} ${단가:,} → {t('도매 실제 청구단가')} ${int(단가*0.85):,} (15% {t('할인 적용')})</p>", unsafe_allow_html=True)
+
     서브표시 = 선택서브카테고리 if 선택서브카테고리 not in [t("전체 (평균)"), "전체 (평균)"] else 선택카테고리
 
     if is_reseller:
@@ -279,6 +302,7 @@ with 탭2:
         st.markdown(f"""<div class="fin-card">
             <div class="fin-row"><span class="fin-label">{t("거래 유형")}</span><span class="fin-value">{고객유형}</span></div>
             <div class="fin-row"><span class="fin-label">{t("카테고리")}</span><span class="fin-value">{서브표시}</span></div>
+            <div class="fin-row"><span class="fin-label">{t("국가")}</span><span class="fin-value">{선택국가}</span></div>
             <div class="fin-row"><span class="fin-label">{t("매출 산출 방식")}</span><span class="fin-value" style="font-size:13px;">{매출출처}</span></div>
             <div class="fin-row"><span class="fin-label">{t("수량")}</span><span class="fin-value">{수량}{t("개")}</span></div>
             <div class="fin-row"><span class="fin-label">{t("제품 단가")}</span><span class="fin-value">${단가:,}</span></div>
@@ -312,22 +336,49 @@ with 탭2:
             fig.update_yaxes(title_text=t("금액 ($)"))
             fig.add_hline(y=0,line_dash="dot",line_color="#ddd8d0")
         else:
-            _q_range=list(range(1,7))
-            _p_range=[int(단가*r) for r in [0.5,0.7,0.85,1.0,1.15,1.3,1.5]]
-            _Q,_P=np.meshgrid(_q_range,_p_range)
-            _Z=np.array([[단일예측(int(_Q[i,j]),_P[i,j],원가,월,기본국가,선택카테고리) for j in range(_Q.shape[1])] for i in range(_Q.shape[0])])
-            cs=[[0,"#e8e4df"],[0.5,"#a8b8c8"],[1,"#7b93a8"]]
-            fig=go.Figure(data=[go.Surface(z=_Z,x=_q_range,y=_p_range,colorscale=cs,showscale=True,
-                colorbar=dict(title=t("예측매출($)"),tickformat="$,.0f",tickfont=dict(size=10,color="#8c8480"),title_font=dict(size=10,color="#8c8480")))])
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",
-                scene=dict(bgcolor="#f7f5f2",
+            # ── 3D 곡면: 국가별 실제 단가 범위 사용 ───────────────────
+            st.markdown(f"<p style='color:#8c8480;font-size:12px;margin-bottom:6px;'>{t('3D 예측 곡면 — 수량 × 단가 × 예측 매출')}</p>", unsafe_allow_html=True)
+            st.caption(t("X축: 수량, Y축: 국가별 실제 단가 범위, Z축: AI 예측 매출. 드래그로 회전하세요."))
+
+            # 국가별 실제 단가 범위 결정
+            국가_cat = 국가단가_데이터.get(기본국가, {}).get(선택카테고리, {})
+            if 국가_cat and 국가_cat.get("min", 0) > 0:
+                p_min = max(1, int(국가_cat["min"]))
+                p_max = int(국가_cat["max"])
+                p_mean = int(국가_cat["mean"])
+                # 7단계 단가: min ~ max 균등 분할
+                _p_range = [int(p_min + (p_max - p_min) * i / 6) for i in range(7)]
+            else:
+                _p_range = [int(단가*r) for r in [0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 1.8]]
+
+            _q_range = list(range(1, 7))
+            _Q, _P = np.meshgrid(_q_range, _p_range)
+            _Z = np.array([
+                [단일예측(int(_Q[i,j]), _P[i,j], 원가, 월, 기본국가, 선택카테고리)
+                 for j in range(_Q.shape[1])]
+                for i in range(_Q.shape[0])
+            ])
+            cs = [[0,"#e8e4df"],[0.5,"#a8b8c8"],[1,"#7b93a8"]]
+            fig = go.Figure(data=[go.Surface(
+                z=_Z, x=_q_range, y=_p_range,
+                colorscale=cs, showscale=True,
+                colorbar=dict(title=t("예측매출($)"),tickformat="$,.0f",
+                    tickfont=dict(size=10,color="#8c8480"),title_font=dict(size=10,color="#8c8480"))
+            )])
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                scene=dict(
+                    bgcolor="#f7f5f2",
                     xaxis=dict(title=t("수량"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480"),
-                    yaxis=dict(title=t("단가($)"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480"),
+                    yaxis=dict(title=t("단가($)"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480",tickformat="$,.0f"),
                     zaxis=dict(title=t("예측매출($)"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480",tickformat="$,.0f"),
-                    camera=dict(eye=dict(x=1.8,y=-1.8,z=1.2))),
-                height=340,margin=dict(l=0,r=0,t=20,b=0))
+                    camera=dict(eye=dict(x=1.8,y=-1.8,z=1.2))
+                ),
+                height=340, margin=dict(l=0,r=0,t=20,b=0)
+            )
         st.plotly_chart(fig,use_container_width=True)
 
+    # ── 전체 국가 비교 ──────────────────────────────────────────────
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("전체 국가 비교 — 동일 조건으로 국가별 예측 매출 및 순수익")}</span></div>', unsafe_allow_html=True)
     분析국가목록 = 국가목록 if 선택국가==t("전체 국가") else [선택국가]
     with st.spinner(t("국가별 예측 계산 중…")):
