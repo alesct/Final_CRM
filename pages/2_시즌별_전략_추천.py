@@ -127,6 +127,9 @@ with 탭1:
     선택계절_키 = 계절_키목록[선택계절_idx]
     선택계절_표시 = 계절_표시목록[선택계절_idx]
     대표월 = 계절_대표월[선택계절_키]
+    st.session_state["선택계절_키"] = 선택계절_키
+    st.session_state["선택계절_표시"] = 선택계절_표시
+    st.session_state["대표월"] = 대표월
 
     서브카테고리_단가표 = {
         "Road Bikes":(980,618),"Mountain Bikes":(667,364),"Touring Bikes":(935,581),
@@ -219,8 +222,9 @@ with 탭1:
             st.markdown(f'<div class="alert-box {box}" style="margin-bottom:6px;padding:10px 14px;"><b>{행["국가"]}</b> — {t("마진율")} {마진}%, {t("순수익")} ${행["순수익"]:,.0f}</div>', unsafe_allow_html=True)
 
 with 탭2:
-    선택계절_키 = 계절_키목록[0]
-    선택계절_표시 = 계절_표시목록[0]
+    선택계절_키 = st.session_state.get("선택계절_키", 계절_키목록[0])
+    선택계절_표시 = st.session_state.get("선택계절_표시", 계절_표시목록[0])
+    대표월 = st.session_state.get("대표월", 계절_대표월[계절_키목록[0]])
 
     # ── 크로스셀링 분석 ──────────────────────────────────────────────
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("자전거 구매 연계 크로스셀링 분석")}</span></div>', unsafe_allow_html=True)

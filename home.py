@@ -119,11 +119,6 @@ with mid3:
     fig1.update_yaxes(tickfont=dict(family="DM Sans", size=15, color="#2e2a26"))
     st.plotly_chart(fig1, use_container_width=True)
 
-    월_색 = "#4e7a54" if 월_중요도 > 0.02 else "#8B6F47"
-    월_bg = "#f0f6f1" if 월_중요도 > 0.02 else "#f5f0eb"
-    월_bd = "#c2d9c5" if 월_중요도 > 0.02 else "#d9c9b5"
-    st.markdown(f'<div style="text-align:center;margin-bottom:20px;padding:12px 16px;background:{월_bg};border:1px solid {월_bd};border-radius:4px;color:{월_색};font-size:15px;">{t("월별 계절성 피처 (Month_num) 실제 중요도")} — <b>{월_중요도_pct}</b></div>', unsafe_allow_html=True)
-
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f"""
