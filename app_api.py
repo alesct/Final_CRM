@@ -63,23 +63,32 @@ def 시스템초기화():
         print(f"CSV cargado: {len(원본_전체)} filas desde {CSV_경로}")
         원본_전체.columns = 원본_전체.columns.str.strip()
 
-        if 원본_전체["Month_num"].max() == 0:
+        # Month_num 품질 검사 — 유효값(1-12)이 전체의 50% 미만이면 수리 필요
+        월_유효비율 = ((원본_전체["Month_num"] >= 1) & (원본_전체["Month_num"] <= 12)).mean()
+        print(f"Month_num 유효비율: {월_유효비율:.2%}")
+
+        if 월_유효비율 < 0.5:
+            print("Month_num 불량 — Excel에서 재수집 시도")
             try:
                 url = "https://github.com/microsoft/powerbi-desktop-samples/raw/main/AdventureWorks%20Sales%20Sample/AdventureWorks%20Sales.xlsx"
                 날짜_데이터 = pd.read_excel(url, sheet_name="Date_data")
-                판매_데이터 = pd.read_excel(url, sheet_name="Sales_data")
-                날짜_병합 = 판매_데이터[["OrderDateKey"]].merge(
-                    날짜_데이터[["DateKey", "Month"]], left_on="OrderDateKey", right_on="DateKey", how="left"
-                )
                 월_순서 = ["January","February","March","April","May","June",
                           "July","August","September","October","November","December"]
-                날짜_병합["Month_num"] = 날짜_병합["Month"].apply(
-                    lambda x: 월_순서.index(x) + 1 if x in 월_순서 else 0
+                # DateKey → Month_num 딕셔너리 (row index 아닌 key 기반 매핑)
+                날짜_데이터["Month_num_fixed"] = 날짜_데이터["Month"].apply(
+                    lambda x: next((i+1 for i,m in enumerate(월_순서) if m.lower() in str(x).lower()), 0)
                 )
-                원본_전체["Month_num"] = 날짜_병합["Month_num"].values
-                print("Excel 날짜 데이터 로드 완료")
+                datekey_to_month = 날짜_데이터.set_index("DateKey")["Month_num_fixed"].to_dict()
+                if "OrderDateKey" in 원본_전체.columns:
+                    원본_전체["Month_num"] = 원본_전체["OrderDateKey"].map(datekey_to_month).fillna(0).astype(int)
+                    유효후 = ((원본_전체["Month_num"] >= 1) & (원본_전체["Month_num"] <= 12)).mean()
+                    print(f"Excel 수리 완료 — 유효비율: {유효후:.2%}")
+                else:
+                    print("OrderDateKey 컬럼 없음 — 월 수리 불가")
             except Exception as ex:
-                print(f"Excel 로드 실패 (무시): {ex}")
+                print(f"Excel 로드 실패: {ex}")
+        else:
+            print(f"Month_num 정상 — 수리 불필요 (유효비율 {월_유효비율:.2%})")
 
         데이터프레임 = 원본_전체.copy()
     except Exception as e:

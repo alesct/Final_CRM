@@ -249,12 +249,12 @@ with 탭2:
         st.session_state["sim_cost"] = 기본원가
         st.session_state["이전선택키"] = 이전키
 
-    p1,p2,p3,p4,p5 = st.columns(5)
+    p1,p2,p3,p4 = st.columns(4)
     with p1: 수량 = st.slider(t("수량"), 1, 100 if is_reseller else 6, 20 if is_reseller else 1, key="sim_qty")
     with p2: 단가 = st.number_input(t("단가 ($)"), min_value=1, key="sim_price", value=st.session_state.get("sim_price",462))
     with p3: 원가 = st.number_input(t("원가 ($)"), min_value=1, key="sim_cost", value=st.session_state.get("sim_cost",250))
-    with p4: 월 = st.slider(t("분석 월"), 1, 12, 6, key="sim_month")
-    with p5: 선택국가 = st.selectbox(t("국가"), [t("전체 국가")]+국가목록, key="sim_country")
+    with p4: 선택국가 = st.selectbox(t("국가"), [t("전체 국가")]+국가목록, key="sim_country")
+    월 = 6  # 월 고정 (모델에서 중요도 낮음)
     if is_reseller:
         st.markdown(f"<p style='color:#8c8480;font-size:12px;margin:-10px 0 10px;'>{t('단가')} = {t('정상가')} (${단가:,}) → {t('도매 실제 청구단가')} ${int(단가*0.85):,} (15% {t('할인 적용')})</p>", unsafe_allow_html=True)
 
@@ -313,26 +313,21 @@ with 탭2:
             fig.update_yaxes(title_text=t("금액 ($)"))
             fig.add_hline(y=0,line_dash="dot",line_color="#ddd8d0")
         else:
-            # 현재 월과 계절 대표월(1,4,7,10) 비교 — 월별 매출 차이를 시각화
-            계절_대표월_비교 = {"겨울(1월)":1,"봄(4월)":4,"여름(7월)":7,"가을(10월)":10}
-            월_색 = {1:"#a98baa",4:"#8aab8e",7:"#7b93a8",10:"#c4956a"}
-            fig=go.Figure()
-            # 수량 곡선 — 선택된 월
-            vals=[단일예측(q,단가,원가,월,기본국가,선택카테고리) for q in range(1,7)]
-            fig.add_trace(go.Scatter(x=list(range(1,7)),y=vals,mode="lines+markers",
-                line=dict(color="#7b93a8",width=3),marker=dict(color="#7b93a8",size=8,line=dict(color="#f7f5f2",width=2)),
-                fill="tozeroy",fillcolor="rgba(123,147,168,0.08)",name=f"{t('예측 매출')} ({월}{t('월')})"))
-            # 계절 대표월 단일 점 비교 — 수량=1 고정
-            for 라벨,m in 계절_대표월_비교.items():
-                if m != 월:
-                    v=단일예측(1,단가,원가,m,기본국가,선택카테고리)
-                    fig.add_trace(go.Scatter(x=[1],y=[v],mode="markers",
-                        marker=dict(color=월_색[m],size=10,symbol="diamond",line=dict(color="#f7f5f2",width=2)),
-                        name=t(라벨),showlegend=True))
-            pastel_layout(fig,height=320)
-            fig.update_xaxes(title_text=t("구매 수량"),tickmode="linear",dtick=1)
-            fig.update_yaxes(title_text=t("예측 매출 ($)"))
-            fig.update_layout(legend=dict(orientation="h",yanchor="bottom",y=1.02,xanchor="left",x=0,font=dict(size=11)))
+            # 3D 예측 곡면 — 수량 × 단가 × 예측 매출
+            _q_range=list(range(1,7))
+            _p_range=[int(단가*r) for r in [0.5,0.7,0.85,1.0,1.15,1.3,1.5]]
+            _Q,_P=np.meshgrid(_q_range,_p_range)
+            _Z=np.array([[단일예측(int(_Q[i,j]),_P[i,j],원가,월,기본국가,선택카테고리) for j in range(_Q.shape[1])] for i in range(_Q.shape[0])])
+            cs=[[0,"#e8e4df"],[0.5,"#a8b8c8"],[1,"#7b93a8"]]
+            fig=go.Figure(data=[go.Surface(z=_Z,x=_q_range,y=_p_range,colorscale=cs,showscale=True,
+                colorbar=dict(title=t("예측매출($)"),tickformat="$,.0f",tickfont=dict(size=10,color="#8c8480"),title_font=dict(size=10,color="#8c8480")))])
+            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",
+                scene=dict(bgcolor="#f7f5f2",
+                    xaxis=dict(title=t("수량"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480"),
+                    yaxis=dict(title=t("단가($)"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480"),
+                    zaxis=dict(title=t("예측매출($)"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480",tickformat="$,.0f"),
+                    camera=dict(eye=dict(x=1.8,y=-1.8,z=1.2))),
+                height=340,margin=dict(l=0,r=0,t=20,b=0))
         st.plotly_chart(fig,use_container_width=True)
 
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("전체 국가 비교 — 동일 조건으로 국가별 예측 매출 및 순수익")}</span></div>', unsafe_allow_html=True)
@@ -361,33 +356,6 @@ with 탭2:
             마진=int(행["순수익"]/행["예측매출"]*100) if 행["예측매출"]>0 else 0
             box="ok" if 행["순수익"]>0 else "bad"
             st.markdown(f'<div class="alert-box {box}" style="margin-bottom:6px;padding:10px 14px;"><b>{행["국가"]}</b> — {t("마진율")} {마진}%, {t("순수익")} ${행["순수익"]:,.0f}</div>', unsafe_allow_html=True)
-
-    st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("3D 예측 곡면 — 수량 × 단가 × 예측 매출")}</span></div>', unsafe_allow_html=True)
-    st.markdown(f"<p style='color:#8c8480;font-size:13px;margin-bottom:12px;'>{t('X축: 수량, Y축: 단가 범위 (현재 설정 ±50%), Z축: AI 예측 매출. 드래그로 회전하세요.')}</p>", unsafe_allow_html=True)
-    if not is_reseller:
-        _q_range=list(range(1,7))
-        _p_range=[int(단가*r) for r in [0.5,0.7,0.85,1.0,1.15,1.3,1.5]]
-        _Q,_P=np.meshgrid(_q_range,_p_range)
-        _Z=np.array([[단일예측(int(_Q[i,j]),_P[i,j],원가,월,기본국가,선택카테고리) for j in range(_Q.shape[1])] for i in range(_Q.shape[0])])
-        cs=[[0,"#e8e4df"],[0.5,"#a8b8c8"],[1,"#7b93a8"]]
-        cb_title=t("예측매출($)")
-    else:
-        _q_range=list(range(5,101,5))
-        _p_range=[int(단가*r) for r in [0.5,0.7,0.85,1.0,1.15,1.3,1.5]]
-        _Q,_P=np.meshgrid(_q_range,_p_range)
-        _Z=_Q*_P*0.85-_Q*원가
-        cs=[[0,"#b56b6b"],[0.4,"#e8e4df"],[1,"#8aab8e"]]
-        cb_title=t("순수익($)")
-    fig_3d=go.Figure(data=[go.Surface(z=_Z,x=_q_range,y=_p_range,colorscale=cs,showscale=True,
-        colorbar=dict(title=cb_title,tickformat="$,.0f",tickfont=dict(size=10,color="#8c8480"),title_font=dict(size=10,color="#8c8480")))])
-    fig_3d.update_layout(paper_bgcolor="rgba(0,0,0,0)",
-        scene=dict(bgcolor="#f7f5f2",
-            xaxis=dict(title=t("수량"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480"),
-            yaxis=dict(title=t("단가($)"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480"),
-            zaxis=dict(title=cb_title,gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480",tickformat="$,.0f"),
-            camera=dict(eye=dict(x=1.8,y=-1.8,z=1.2))),
-        height=480,margin=dict(l=0,r=0,t=20,b=0))
-    st.plotly_chart(fig_3d,use_container_width=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
