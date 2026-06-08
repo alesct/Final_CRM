@@ -72,12 +72,12 @@ st.markdown(f"""
 st.markdown("""
 <style>
 div[data-testid="column"] > div > div > div > div[data-testid="stButton"] > button {
-    width:100%;background:#ffffff;border:1.5px solid #ddd8d0;border-radius:6px;
+    width:100%;background:
     padding:22px 16px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;
-    color:#2e2a26;text-transform:uppercase;letter-spacing:0.08em;
+    color:
 }
 div[data-testid="column"] > div > div > div > div[data-testid="stButton"] > button:hover {
-    border-color:#7b93a8;color:#7b93a8;
+    border-color:
 }
 </style>
 """, unsafe_allow_html=True)
@@ -122,7 +122,7 @@ with mid3:
     월_색 = "#4e7a54" if 월_중요도 > 0.02 else "#8B6F47"
     월_bg = "#f0f6f1" if 월_중요도 > 0.02 else "#f5f0eb"
     월_bd = "#c2d9c5" if 월_중요도 > 0.02 else "#d9c9b5"
-    st.markdown(f'<div style="text-align:center;margin-bottom:20px;padding:12px 16px;background:{월_bg};border:1px solid {월_bd};border-radius:4px;color:{월_색};font-size:15px;">📅 {t("월별 계절성 피처 (Month_num) 실제 중요도")} — <b>{월_중요도_pct}</b></div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="text-align:center;margin-bottom:20px;padding:12px 16px;background:{월_bg};border:1px solid {월_bd};border-radius:4px;color:{월_색};font-size:15px;">{t("월별 계절성 피처 (Month_num) 실제 중요도")} — <b>{월_중요도_pct}</b></div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
     with col1:

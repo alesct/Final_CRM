@@ -23,8 +23,6 @@ def csv_로드():
     if os.path.exists(현재경로): return pd.read_csv(현재경로)
     return None
 
-# FIX: month is now part of the cache key so changing the slider triggers a new API call
-@st.cache_data(ttl=30, show_spinner=False)
 def 단일예측(수량, 단가, 원가, 월, 국가, 카테고리):
     try:
         r = requests.post(f"{서버주소}/api/predict/strategy", timeout=5, json={
@@ -33,7 +31,6 @@ def 단일예측(수량, 단가, 원가, 월, 국가, 카테고리):
         return float(r.get("예측매출액", 0.0))
     except: return float(수량 * 단가 * 1.1)
 
-@st.cache_data(ttl=30, show_spinner=False)
 def 국가별_전체예측(수량, 단가, 원가, 월, 국가목록_t, is_reseller, 카테고리):
     결과 = []
     for 국가 in 국가목록_t:
@@ -261,11 +258,6 @@ with 탭2:
     if is_reseller:
         st.markdown(f"<p style='color:#8c8480;font-size:12px;margin:-10px 0 10px;'>💡 {t('단가')} = {t('정상가')} (${단가:,}) → {t('도매 실제 청구단가')} ${int(단가*0.85):,} (15% {t('할인 적용')})</p>", unsafe_allow_html=True)
 
-    # show month label so user knows which season they're simulating
-    월_to_계절 = {12:"겨울",1:"겨울",2:"겨울",3:"봄",4:"봄",5:"봄",6:"여름",7:"여름",8:"여름",9:"가을",10:"가을",11:"가을"}
-    계절표시 = 월_to_계절.get(월, "")
-    st.markdown(f"<p style='color:#8c8480;font-size:12px;margin:-8px 0 12px;'>📅 {월}월 — {t(계절표시)} 시즌</p>", unsafe_allow_html=True)
-
     기본국가 = 국가목록[0] if 선택국가 == t("전체 국가") else 선택국가
     서브표시 = 선택서브카테고리 if 선택서브카테고리 not in [t("전체 (평균)"), "전체 (평균)"] else 선택카테고리
 
@@ -290,7 +282,7 @@ with 탭2:
             <div class="fin-row"><span class="fin-label">{t("매출 산출 방식")}</span><span class="fin-value" style="font-size:13px;">{매출출처}</span></div>
             <div class="fin-row"><span class="fin-label">{t("수량")}</span><span class="fin-value">{수량}{t("개")}</span></div>
             <div class="fin-row"><span class="fin-label">{t("제품 단가")}</span><span class="fin-value">${단가:,}</span></div>
-            <div class="fin-row"><span class="fin-label">{t("분석 월")}</span><span class="fin-value">{월}월 ({t(계절표시)})</span></div>
+            <div class="fin-row"><span class="fin-label">{t("분석 월")}</span><span class="fin-value">{월}월</span></div>
             <div class="fin-row"><span class="fin-label">{t("예측 총 매출")}</span><span class="fin-value">${예측매출:,}</span></div>
             <div class="fin-row"><span class="fin-label">{t("총 제조 원가")}</span><span class="fin-value">${총원가:,}</span></div>
             <div class="fin-row"><span class="fin-label">{t("마진율")}</span><span class="fin-value">{마진율}%</span></div>
