@@ -16,7 +16,7 @@ CSV_경로 = os.path.join(BASE_DIR, "adventureworks_clean.csv")
 데이터프레임 = None
 원본_전체 = None
 예측모델 = None
-업셀_모델 = {}          # {"Accessories": clf, "Clothing": clf, "Components": clf}
+업셀_모델 = {}
 업셀_정확도 = {}
 국가목록 = []
 카테고리목록 = []
@@ -33,13 +33,11 @@ CSV_경로 = os.path.join(BASE_DIR, "adventureworks_clean.csv")
 
 US_식별자 = ["United States"]
 
-
 def 계절_분류(월):
     for 계절, 월목록 in 계절_월_매핑.items():
         if 월 in 월목록:
             return 계절
     return "봄"
-
 
 class 시뮬레이션입력(BaseModel):
     주문수량: int
@@ -49,13 +47,11 @@ class 시뮬레이션입력(BaseModel):
     선택국가: str
     선택카테고리: str
 
-
 class 업셀입력(BaseModel):
     주문수량: int
     제품단가: float
     월코드: int
     선택국가: str
-
 
 @애플리케이션.on_event("startup")
 def 시스템초기화():
@@ -123,23 +119,20 @@ def 시스템초기화():
         for 피처, 중요도 in zip(피처_컬럼, 예측모델.feature_importances_)
     }
 
-    # --- 업셀 분류 모델 ---
-    # 피처: Bikes 구매 행의 수량, 단가, 월, 국가 인코딩
-    # 타겟: 해당 CustomerKey가 각 비Bikes 카테고리를 구매했는지 여부 (1/0)
     업셀_피처 = ["Order Quantity", "Unit Price", "Month_num", "Country_enc"]
     업셀_타겟_카테고리 = ["Accessories", "Clothing", "Components"]
 
     if "CustomerKey" in 데이터프레임.columns:
         bikes_df = 데이터프레임[데이터프레임["Category"] == "Bikes"].copy()
-        bikes_고객 = set(bikes_df["CustomerKey"].dropna().astype(int).unique())
+        bikes_고객 = set(bikes_df["CustomerKey"].dropna().apply(lambda x: int(float(x))).unique())
 
         for 타겟 in 업셀_타겟_카테고리:
             타겟_고객 = set(
                 데이터프레임[데이터프레임["Category"] == 타겟]["CustomerKey"]
-                .dropna().astype(int).unique()
+                .dropna().apply(lambda x: int(float(x))).unique()
             )
             bikes_df[f"bought_{타겟}"] = bikes_df["CustomerKey"].apply(
-                lambda k: 1 if int(k) in 타겟_고객 else 0
+                lambda k: 1 if int(float(k)) in 타겟_고객 else 0
             )
 
         for 타겟 in 업셀_타겟_카테고리:
@@ -160,7 +153,6 @@ def 시스템초기화():
             업셀_정확도[타겟] = round(float(clf.score(X_u_검증, y_u_검증)), 4)
             print(f"업셀 모델 [{타겟}] 정확도: {업셀_정확도[타겟]}")
 
-
 @애플리케이션.get("/api/metadata")
 def 메타데이터조회():
     서브카테고리목록 = sorted(데이터프레임["Subcategory"].dropna().unique().tolist()) if "Subcategory" in 데이터프레임.columns else []
@@ -174,7 +166,6 @@ def 메타데이터조회():
         "업셀정확도": 업셀_정확도,
         "피처수": len(피처_컬럼),
     }
-
 
 @애플리케이션.get("/api/season/strategy")
 def 시즌전략조회():
@@ -238,7 +229,6 @@ def 시즌전략조회():
 
     return 결과
 
-
 @애플리케이션.get("/api/crosssell")
 def 크로스셀분석():
     df = 데이터프레임.copy()
@@ -276,7 +266,6 @@ def 크로스셀분석():
         "카테고리별_총매출": 카테고리별_총매출,
     }
 
-
 @애플리케이션.get("/api/subcategory/bikes")
 def 자전거서브카테고리분석():
     필요컬럼 = ["Subcategory", "Category", "Sales Amount", "Month_num", "Unit Price"]
@@ -301,7 +290,7 @@ def 자전거서브카테고리분석():
         if "CustomerKey" in 데이터프레임.columns:
             유효_고객키 = pd.to_numeric(
                 서브_구매자["CustomerKey"], errors="coerce"
-            ).dropna().astype(int).unique()
+            ).dropna().apply(lambda x: int(float(x))).unique()
             유효_고객키 = [k for k in 유효_고객키 if k > 0]
         else:
             유효_고객키 = []
@@ -342,7 +331,6 @@ def 자전거서브카테고리분석():
 
     return 결과
 
-
 @애플리케이션.post("/api/predict/strategy")
 def 전략예측실행(요청데이터: 시뮬레이션입력):
     국가인덱스 = 국가목록.index(요청데이터.선택국가) if 요청데이터.선택국가 in 국가목록 else 0
@@ -374,7 +362,6 @@ def 전략예측실행(요청데이터: 시뮬레이션입력):
         "예측매출액": max(0.0, round(예측매출, 2)),
         "시장점유율": round(시장점유율 * 100, 1),
     }
-
 
 @애플리케이션.post("/api/predict/upsell")
 def 업셀예측(요청데이터: 업셀입력):
@@ -418,7 +405,6 @@ def 업셀예측(요청데이터: 업셀입력):
             continue
         clf = 업셀_모델[타겟]
         확률배열 = clf.predict_proba(입력df)[0]
-        # class 1 = bought, but check which index it is
         클래스목록 = list(clf.classes_)
         확률 = float(확률배열[클래스목록.index(1)]) * 100 if 1 in 클래스목록 else 50.0
         결과[타겟] = {
@@ -428,7 +414,6 @@ def 업셀예측(요청데이터: 업셀입력):
             "추천": 추천문구[타겟][계절],
         }
 
-    # sort by probability descending
     결과_정렬 = dict(sorted(결과.items(), key=lambda x: x[1]["확률"], reverse=True))
     최고카테고리 = list(결과_정렬.keys())[0]
 
