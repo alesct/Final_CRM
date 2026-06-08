@@ -3,9 +3,9 @@ from pydantic import BaseModel
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score, accuracy_score
+from sklearn.metrics import r2_score
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,13 +16,12 @@ CSV_경로 = os.path.join(BASE_DIR, "adventureworks_clean.csv")
 데이터프레임 = None
 원본_전체 = None
 예측모델 = None
-분류모델 = None
+업셀_모델 = {}          # {"Accessories": clf, "Clothing": clf, "Components": clf}
+업셀_정확도 = {}
 국가목록 = []
 카테고리목록 = []
 피처중요도 = {}
-분류_피처중요도 = {}
 모델_r2 = 0.0
-분류_정확도 = 0.0
 피처_컬럼 = ["Order Quantity", "Unit Price", "Standard Cost", "Month_num", "Category_enc", "Country_enc"]
 
 계절_월_매핑 = {
@@ -51,19 +50,17 @@ class 시뮬레이션입력(BaseModel):
     선택카테고리: str
 
 
-class 분류입력(BaseModel):
+class 업셀입력(BaseModel):
     주문수량: int
     제품단가: float
-    제조원가: float
     월코드: int
     선택국가: str
-    선택카테고리: str
 
 
 @애플리케이션.on_event("startup")
 def 시스템초기화():
-    global 데이터프레임, 원본_전체, 예측모델, 분류모델, 국가목록, 카테고리목록
-    global 피처중요도, 분류_피처중요도, 모델_r2, 분류_정확도
+    global 데이터프레임, 원본_전체, 예측모델, 업셀_모델, 업셀_정확도, 국가목록, 카테고리목록
+    global 피처중요도, 모델_r2
 
     try:
         원본_전체 = pd.read_csv(CSV_경로)
@@ -103,7 +100,6 @@ def 시스템초기화():
             "Month_num": 난수.randint(1, 13, n),
             "Country": 난수.choice(나라들, n),
             "Category": 난수.choice(카테고리들, n),
-            "is_reseller": 난수.randint(0, 2, n),
             "CustomerKey": 난수.randint(1, 300, n),
             "OrderDateKey": 난수.randint(20130101, 20160101, n),
         })
@@ -127,16 +123,42 @@ def 시스템초기화():
         for 피처, 중요도 in zip(피처_컬럼, 예측모델.feature_importances_)
     }
 
-    if "is_reseller" in 데이터프레임.columns:
-        y_clf = 데이터프레임["is_reseller"]
-        X_clf_학습, X_clf_검증, y_clf_학습, y_clf_검증 = train_test_split(X, y_clf, test_size=0.2, random_state=42)
-        분류모델 = RandomForestClassifier(n_estimators=100, random_state=42)
-        분류모델.fit(X_clf_학습, y_clf_학습)
-        분류_정확도 = round(float(accuracy_score(y_clf_검증, 분류모델.predict(X_clf_검증))), 4)
-        분류_피처중요도 = {
-            피처: round(float(중요도), 4)
-            for 피처, 중요도 in zip(피처_컬럼, 분류모델.feature_importances_)
-        }
+    # --- 업셀 분류 모델 ---
+    # 피처: Bikes 구매 행의 수량, 단가, 월, 국가 인코딩
+    # 타겟: 해당 CustomerKey가 각 비Bikes 카테고리를 구매했는지 여부 (1/0)
+    업셀_피처 = ["Order Quantity", "Unit Price", "Month_num", "Country_enc"]
+    업셀_타겟_카테고리 = ["Accessories", "Clothing", "Components"]
+
+    if "CustomerKey" in 데이터프레임.columns:
+        bikes_df = 데이터프레임[데이터프레임["Category"] == "Bikes"].copy()
+        bikes_고객 = set(bikes_df["CustomerKey"].dropna().astype(int).unique())
+
+        for 타겟 in 업셀_타겟_카테고리:
+            타겟_고객 = set(
+                데이터프레임[데이터프레임["Category"] == 타겟]["CustomerKey"]
+                .dropna().astype(int).unique()
+            )
+            bikes_df[f"bought_{타겟}"] = bikes_df["CustomerKey"].apply(
+                lambda k: 1 if int(k) in 타겟_고객 else 0
+            )
+
+        for 타겟 in 업셀_타겟_카테고리:
+            y_col = f"bought_{타겟}"
+            학습용 = bikes_df[업셀_피처 + [y_col]].dropna()
+            if len(학습용) < 50:
+                continue
+            X_u = 학습용[업셀_피처]
+            y_u = 학습용[y_col]
+            if y_u.nunique() < 2:
+                continue
+            X_u_학습, X_u_검증, y_u_학습, y_u_검증 = train_test_split(
+                X_u, y_u, test_size=0.2, random_state=42
+            )
+            clf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight="balanced")
+            clf.fit(X_u_학습, y_u_학습)
+            업셀_모델[타겟] = clf
+            업셀_정확도[타겟] = round(float(clf.score(X_u_검증, y_u_검증)), 4)
+            print(f"업셀 모델 [{타겟}] 정확도: {업셀_정확도[타겟]}")
 
 
 @애플리케이션.get("/api/metadata")
@@ -148,39 +170,9 @@ def 메타데이터조회():
         "서브카테고리목록": 서브카테고리목록,
         "총레코드수": len(데이터프레임),
         "모델R2": 모델_r2,
-        "분류정확도": 분류_정확도,
         "피처중요도": 피처중요도,
-        "분류피처중요도": 분류_피처중요도,
+        "업셀정확도": 업셀_정확도,
         "피처수": len(피처_컬럼),
-    }
-
-
-@애플리케이션.post("/api/predict/classify")
-def 고객분류예측(요청데이터: 분류입력):
-    if 분류모델 is None:
-        return {"예측결과": "B2C", "B2C확률": 0.7, "B2B확률": 0.3, "정확도": 0.0}
-
-    국가인덱스 = 국가목록.index(요청데이터.선택국가) if 요청데이터.선택국가 in 국가목록 else 0
-    카테고리인덱스 = 카테고리목록.index(요청데이터.선택카테고리) if 요청데이터.선택카테고리 in 카테고리목록 else 0
-
-    입력df = pd.DataFrame([{
-        "Order Quantity": 요청데이터.주문수량,
-        "Unit Price": 요청데이터.제품단가,
-        "Standard Cost": 요청데이터.제조원가,
-        "Month_num": 요청데이터.월코드,
-        "Category_enc": 카테고리인덱스,
-        "Country_enc": 국가인덱스,
-    }])
-
-    확률 = 분류모델.predict_proba(입력df)[0]
-    예측 = int(분류모델.predict(입력df)[0])
-
-    return {
-        "예측결과": "B2B" if 예측 == 1 else "B2C",
-        "B2C확률": round(float(확률[0]) * 100, 1),
-        "B2B확률": round(float(확률[1]) * 100, 1),
-        "정확도": 분류_정확도,
-        "피처중요도": 분류_피처중요도,
     }
 
 
@@ -381,4 +373,67 @@ def 전략예측실행(요청데이터: 시뮬레이션입력):
     return {
         "예측매출액": max(0.0, round(예측매출, 2)),
         "시장점유율": round(시장점유율 * 100, 1),
+    }
+
+
+@애플리케이션.post("/api/predict/upsell")
+def 업셀예측(요청데이터: 업셀입력):
+    국가인덱스 = 국가목록.index(요청데이터.선택국가) if 요청데이터.선택국가 in 국가목록 else 0
+
+    입력df = pd.DataFrame([{
+        "Order Quantity": 요청데이터.주문수량,
+        "Unit Price": 요청데이터.제품단가,
+        "Month_num": 요청데이터.월코드,
+        "Country_enc": 국가인덱스,
+    }])
+
+    결과 = {}
+    업셀_타겟_카테고리 = ["Accessories", "Clothing", "Components"]
+    계절 = 계절_분류(요청데이터.월코드)
+
+    추천문구 = {
+        "Accessories": {
+            "봄": "봄 시즌 라이딩에 헬멧·타이어·잠금장치 번들을 함께 제안하세요.",
+            "여름": "여름 장거리 라이딩 시즌, 수분팩·캐리어 번들이 효과적입니다.",
+            "가을": "가을 통근 수요에 맞춰 라이트·펜더 패키지를 추천하세요.",
+            "겨울": "겨울 실내 훈련 고객에게 바이크 스탠드·보틀 세트를 제안하세요.",
+        },
+        "Clothing": {
+            "봄": "봄 시즌 라이더에게 저지·장갑 세트로 스타일 업셀을 노리세요.",
+            "여름": "여름 고온 대비 통기성 저지·반바지 세트가 잘 팔립니다.",
+            "가을": "가을 방풍 조끼·긴 타이즈 세트로 시즌 전환 수요를 잡으세요.",
+            "겨울": "겨울 방한 저지·양말·장갑 풀세트 번들을 체크아웃 시점에 제안하세요.",
+        },
+        "Components": {
+            "봄": "봄 시즌 업그레이드 수요에 맞춰 프레임·휠 패키지를 제안하세요.",
+            "여름": "여름 레이싱 시즌, 경량 크랭크셋·핸들바 업그레이드를 추천하세요.",
+            "가을": "가을 오버홀 시즌, 페달·휠 교체 패키지가 유효합니다.",
+            "겨울": "겨울 비수기, 컴포넌트 선구매 할인으로 재방문을 유도하세요.",
+        },
+    }
+
+    for 타겟 in 업셀_타겟_카테고리:
+        if 타겟 not in 업셀_모델:
+            결과[타겟] = {"확률": 50.0, "예측": "알 수 없음", "정확도": 0.0, "추천": 추천문구[타겟][계절]}
+            continue
+        clf = 업셀_모델[타겟]
+        확률배열 = clf.predict_proba(입력df)[0]
+        # class 1 = bought, but check which index it is
+        클래스목록 = list(clf.classes_)
+        확률 = float(확률배열[클래스목록.index(1)]) * 100 if 1 in 클래스목록 else 50.0
+        결과[타겟] = {
+            "확률": round(확률, 1),
+            "예측": "구매 가능성 높음" if 확률 >= 50 else "구매 가능성 낮음",
+            "정확도": 업셀_정확도.get(타겟, 0.0),
+            "추천": 추천문구[타겟][계절],
+        }
+
+    # sort by probability descending
+    결과_정렬 = dict(sorted(결과.items(), key=lambda x: x[1]["확률"], reverse=True))
+    최고카테고리 = list(결과_정렬.keys())[0]
+
+    return {
+        "카테고리별예측": 결과_정렬,
+        "최고추천카테고리": 최고카테고리,
+        "계절": 계절,
     }

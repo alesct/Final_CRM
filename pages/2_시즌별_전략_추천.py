@@ -114,7 +114,7 @@ with f2:
     선택국가 = st.selectbox(t("국가 필터"), country_options)
     선택국가_내부 = "전체 국가" if 선택국가 == t("전체 국가") else 선택국가
 
-탭2, 탭3, 탭4 = st.tabs([t("시즌별 매출 예측"), t("크로스셀링 분석"), t("고객 유형 분류 — B2C / B2B")])
+탭2, 탭3, 탭4 = st.tabs([t("시즌별 매출 예측"), t("크로스셀링 분석"), t("업셀 구매 예측")])
 
 with 탭2:
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("시즌별 AI 매출 예측 — 판매 시뮬레이션")}</span></div>', unsafe_allow_html=True)
@@ -402,96 +402,99 @@ with 탭3:
                         </div>""", unsafe_allow_html=True)
 
 with 탭4:
-    st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("고객 유형 예측 — Random Forest Classifier")}</span></div>', unsafe_allow_html=True)
-    st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:20px;'>{t('주문 조건을 입력하면 AI가 해당 거래가 일반 고객(B2C)인지 도매 대리점(B2B)인지 예측합니다. 정확도 99.99%의 Random Forest Classifier를 사용합니다.')}</p>", unsafe_allow_html=True)
+    st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#8aab8e"></div><span>{t("업셀 구매 예측 — Bikes 고객의 추가 구매 가능성")}</span></div>', unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:24px;'>{t('자전거를 구매한 고객이 Accessories / Clothing / Components도 구매할 가능성을 AI가 예측합니다. 수량, 단가, 월, 국가를 입력하세요.')}</p>", unsafe_allow_html=True)
 
-    c3_1, c3_2, c3_3 = st.columns(3)
-    with c3_1:
-        clf_카테고리 = st.selectbox(t("판매 카테고리"), 메타["카테고리목록"], key="clf_cat")
-    with c3_2:
-        clf_국가 = st.selectbox(t("국가"), 국가목록, key="clf_country")
-    with c3_3:
-        clf_수량 = st.slider(t("수량"), 1, 50, 5, key="clf_qty")
+    u1, u2, u3, u4 = st.columns(4)
+    with u1:
+        up_수량 = st.slider(t("주문 수량"), 1, 10, 2, key="up_qty")
+    with u2:
+        up_단가 = st.number_input(t("제품 단가 ($)"), min_value=1, value=700, key="up_price")
+    with u3:
+        up_월 = st.slider(t("구매 월"), 1, 12, 계절_대표월[선택계절_키], key="up_month")
+    with u4:
+        up_국가목록 = [t("전체 국가")] + 국가목록
+        up_국가_선택 = st.selectbox(t("국가"), up_국가목록, key="up_country")
+        up_국가 = 국가목록[0] if up_국가_선택 == t("전체 국가") else up_국가_선택
 
-    c3_4, c3_5, c3_6 = st.columns(3)
-    with c3_4:
-        clf_단가 = st.number_input(t("단가 ($)"), min_value=1, value=500, key="clf_price")
-    with c3_5:
-        clf_원가 = st.number_input(t("원가 ($)"), min_value=1, value=300, key="clf_cost")
-    with c3_6:
-        clf_월 = st.slider(t("분석 월"), 1, 12, 6, key="clf_month")
+    카테고리_색상맵 = {"Accessories": "#8aab8e", "Clothing": "#c4956a", "Components": "#a98baa"}
 
     try:
-        clf_result = requests.post(f"{서버주소}/api/predict/classify", timeout=5, json={
-            "주문수량": clf_수량, "제품단가": float(clf_단가), "제조원가": float(clf_원가),
-            "월코드": clf_월, "선택국가": clf_국가, "선택카테고리": clf_카테고리
+        up_result = requests.post(f"{서버주소}/api/predict/upsell", timeout=5, json={
+            "주문수량": up_수량,
+            "제품단가": float(up_단가),
+            "월코드": up_월,
+            "선택국가": up_국가,
         }).json()
-        b2c_pct = clf_result.get("B2C확률", 70.0)
-        b2b_pct = clf_result.get("B2B확률", 30.0)
-        예측결과 = clf_result.get("예측결과", "B2C")
-        정확도 = clf_result.get("정확도", 0.9999)
-        clf_피처중요도 = clf_result.get("피처중요도", {})
+        카테고리별예측 = up_result.get("카테고리별예측", {})
+        최고추천 = up_result.get("최고추천카테고리", "Accessories")
+        계절결과 = up_result.get("계절", "봄")
+        api_ok = True
     except:
-        b2c_pct, b2b_pct, 예측결과, 정확도 = 70.0, 30.0, "B2C", 0.9999
-        clf_피처중요도 = {}
+        카테고리별예측 = {
+            "Accessories": {"확률": 65.0, "예측": "구매 가능성 높음", "정확도": 0.0, "추천": "서버 연결 필요"},
+            "Clothing": {"확률": 40.0, "예측": "구매 가능성 낮음", "정확도": 0.0, "추천": "서버 연결 필요"},
+            "Components": {"확률": 35.0, "예측": "구매 가능성 낮음", "정확도": 0.0, "추천": "서버 연결 필요"},
+        }
+        최고추천 = "Accessories"
+        계절결과 = 선택계절_키
+        api_ok = False
 
-    결과_표시 = t("일반 고객") if 예측결과 == "B2C" else t("도매 대리점")
-    결과색 = "#7b93a8" if 예측결과 == "B2C" else "#8B6F47"
-    결과bg = "#eef2f5" if 예측결과 == "B2C" else "#f5f0eb"
-
-    st.markdown(f"""
-    <div style="text-align:center;padding:28px;background:{결과bg};border:2px solid {결과색};border-radius:8px;margin:20px 0;">
-        <div style="font-family:'Cormorant',serif;font-size:64px;font-weight:700;color:{결과색};line-height:1;">
-            {결과_표시}
-        </div>
-        <div style="font-family:'DM Sans',sans-serif;font-size:15px;color:#8c8480;margin-top:8px;">
-            {t("예측 결과")} — {t("모델 정확도")} {정확도*100:.2f}%
-        </div>
-    </div>""", unsafe_allow_html=True)
-
-    ga, gb = st.columns(2)
-    with ga:
-        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("고객 유형 확률 분포")}</span></div>', unsafe_allow_html=True)
-        fig_clf = go.Figure(go.Pie(
-            labels=[t("일반 고객"), t("도매 대리점")],
-            values=[b2c_pct, b2b_pct],
-            hole=0.55,
-            marker=dict(colors=["#7b93a8","#8B6F47"], line=dict(color="#f7f5f2", width=3)),
-            textfont=dict(family="DM Sans", size=16),
-            textinfo="label+percent",
-            hovertemplate="<b>%{label}</b><br>%{value:.1f}%<extra></extra>",
-        ))
-        pastel_layout(fig_clf, height=300, margin=dict(l=10,r=10,t=20,b=10))
-        fig_clf.update_layout(showlegend=False)
-        st.plotly_chart(fig_clf, use_container_width=True)
-
-    with gb:
-        if clf_피처중요도:
-            st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("분류 모델 피처 중요도")}</span></div>', unsafe_allow_html=True)
-            피처명맵 = {"Order Quantity":t("주문 수량"),"Unit Price":t("제품 단가"),"Standard Cost":t("제조 원가"),"Month_num":t("월 코드"),"Category_enc":t("카테고리"),"Country_enc":t("국가")}
-            clf_df = pd.DataFrame([
-                {"피처": 피처명맵.get(k,k), "중요도": v, "pct": f"{v*100:.1f}%"}
-                for k,v in sorted(clf_피처중요도.items(), key=lambda x: x[1])
-            ])
-            fig_imp = go.Figure(go.Bar(
-                x=clf_df["중요도"], y=clf_df["피처"], orientation="h",
-                marker=dict(color=clf_df["중요도"], colorscale=[[0,"#e8e4df"],[1,"#a98baa"]], line=dict(width=0)),
-                text=clf_df["pct"], textposition="outside",
-                textfont=dict(family="DM Sans", size=13, color="#8c8480"),
-            ))
-            pastel_layout(fig_imp, height=300, margin=dict(l=10,r=60,t=10,b=10))
-            fig_imp.update_xaxes(showticklabels=False, showgrid=False)
-            st.plotly_chart(fig_imp, use_container_width=True)
-
-        st.markdown(f"""
-        <div class="fin-card" style="margin-top:12px;">
-            <div class="fin-row"><span class="fin-label">{t("예측 결과")}</span><span class="fin-value" style="color:{결과색};">{결과_표시}</span></div>
-            <div class="fin-row"><span class="fin-label">{t("일반 고객")} {t("확률")}</span><span class="fin-value">{b2c_pct:.1f}%</span></div>
-            <div class="fin-row"><span class="fin-label">{t("도매 대리점")} {t("확률")}</span><span class="fin-value">{b2b_pct:.1f}%</span></div>
-            <div class="fin-row"><span class="fin-label">{t("모델 정확도")}</span><span class="fin-value">{정확도*100:.2f}%</span></div>
-            <div class="fin-row"><span class="fin-label">{t("알고리즘")}</span><span class="fin-value">Random Forest Classifier</span></div>
-            <div class="fin-row"><span class="fin-label">{t("트리 수")}</span><span class="fin-value">100</span></div>
+    # KPI row
+    st.markdown(f"""<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px;">""", unsafe_allow_html=True)
+    for 카t, 데이터 in 카테고리별예측.items():
+        확률 = 데이터["확률"]
+        색 = 카테고리_색상맵.get(카t, "#7b93a8")
+        강조 = "border:2px solid " + 색 if 카t == 최고추천 else "border:1px solid var(--border)"
+        st.markdown(f"""<div class="kpi-card" style="{강조};border-top:3px solid {색};">
+            <div class="kpi-val" style="color:{색};">{확률:.0f}%</div>
+            <div class="kpi-label">{카t}</div>
+            <div style="font-size:12px;color:#8c8480;margin-top:4px;">{t(데이터['예측'])}</div>
         </div>""", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Probability bar chart
+    ca, cb = st.columns(2)
+    with ca:
+        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("카테고리별 구매 확률")}</span></div>', unsafe_allow_html=True)
+        카t목록 = list(카테고리별예측.keys())
+        확률목록 = [카테고리별예측[k]["확률"] for k in 카t목록]
+        색목록 = [카테고리_색상맵.get(k, "#7b93a8") for k in 카t목록]
+
+        fig_up = go.Figure(go.Bar(
+            x=확률목록, y=카t목록, orientation="h",
+            marker=dict(color=색목록, line=dict(width=0)),
+            text=[f"{v:.1f}%" for v in 확률목록],
+            textposition="outside",
+            textfont=dict(family="DM Sans", size=14, color="#8c8480"),
+        ))
+        pastel_layout(fig_up, height=260, margin=dict(l=10, r=80, t=10, b=10))
+        fig_up.update_xaxes(range=[0, 110], showticklabels=False, showgrid=False)
+        fig_up.add_vline(x=50, line_dash="dot", line_color="#ddd8d0")
+        fig_up.update_yaxes(tickfont=dict(family="DM Sans", size=15, color="#2e2a26"))
+        st.plotly_chart(fig_up, use_container_width=True)
+        st.markdown(f"<p style='color:#8c8480;font-size:12px;margin-top:-8px;'>점선(50%) 기준 오른쪽 = 구매 가능성 높음</p>", unsafe_allow_html=True)
+
+    with cb:
+        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("시즌 맞춤 전략 추천")}</span></div>', unsafe_allow_html=True)
+        for 카t, 데이터 in 카테고리별예측.items():
+            색 = 카테고리_색상맵.get(카t, "#7b93a8")
+            확률 = 데이터["확률"]
+            box_bg = "#f0f6f1" if 확률 >= 50 else "#fdf1f1"
+            box_bd = "#c2d9c5" if 확률 >= 50 else "#e0bcbc"
+            box_c = "#4e7a54" if 확률 >= 50 else "#b56b6b"
+            정확도표시 = f" (모델 정확도 {데이터['정확도']*100:.1f}%)" if 데이터['정확도'] > 0 else ""
+            st.markdown(f"""<div class="strat-card" style="border-left-color:{색};margin-bottom:10px;">
+                <div class="strat-country">Bikes → {카t}{정확도표시}</div>
+                <div class="strat-text">{t(데이터['추천'])}</div>
+                <div style="margin-top:8px;background:{box_bg};border:1px solid {box_bd};border-radius:4px;padding:6px 10px;font-size:13px;color:{box_c};">
+                    {확률:.1f}% {t(데이터['예측'])}
+                </div>
+            </div>""", unsafe_allow_html=True)
+
+    if not api_ok:
+        st.markdown(f'<div class="alert-box bad" style="margin-top:16px;">서버 미연결 — uvicorn 실행 후 새로고침하세요.</div>', unsafe_allow_html=True)
+
 
 st.markdown('</div>', unsafe_allow_html=True)
 render_footer()
