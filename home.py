@@ -103,7 +103,7 @@ with mid3:
         text=피처df["pct"], textposition="outside",
         textfont=dict(family="DM Sans", size=14, color="#8c8480"),
     ))
-    pastel_layout(fig1, height=320, margin=dict(l=10, r=70, t=10, b=10))
+    pastel_layout(fig1, height=320, margin=dict(l=10, r=120, t=10, b=10))
     fig1.update_xaxes(showticklabels=False, showgrid=False)
     fig1.update_yaxes(tickfont=dict(family="DM Sans", size=15, color="#2e2a26"))
     st.plotly_chart(fig1, use_container_width=True)
