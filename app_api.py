@@ -63,7 +63,6 @@ def 시스템초기화():
         print(f"CSV cargado: {len(원본_전체)} filas desde {CSV_경로}")
         원본_전체.columns = 원본_전체.columns.str.strip()
 
-        # Month_num 품질 검사 — 유효값(1-12)이 전체의 50% 미만이면 수리 필요
         월_유효비율 = ((원본_전체["Month_num"] >= 1) & (원본_전체["Month_num"] <= 12)).mean()
         print(f"Month_num 유효비율: {월_유효비율:.2%}")
 
@@ -74,7 +73,6 @@ def 시스템초기화():
                 날짜_데이터 = pd.read_excel(url, sheet_name="Date_data")
                 월_순서 = ["January","February","March","April","May","June",
                           "July","August","September","October","November","December"]
-                # DateKey → Month_num 딕셔너리 (row index 아닌 key 기반 매핑)
                 날짜_데이터["Month_num_fixed"] = 날짜_데이터["Month"].apply(
                     lambda x: next((i+1 for i,m in enumerate(월_순서) if m.lower() in str(x).lower()), 0)
                 )
