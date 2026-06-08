@@ -122,7 +122,7 @@ with f2:
 대표월 = 계절_대표월[선택계절_키]
 분析국가 = 국가목록 if 선택국가_내부 == "전체 국가" else [선택국가_내부]
 
-탭1, 탭2, 탭3 = st.tabs([t("시즌별 매출 예측"), t("크로스셀링 분석"), t("업셀 구매 예측")])
+탭1, 탭2 = st.tabs([t("시즌별 매출 예측"), t("크로스셀링 분석 & 업셀 예측")])
 
 with 탭1:
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("시즌별 AI 매출 예측 — 판매 시뮬레이션")}</span></div>', unsafe_allow_html=True)
@@ -218,7 +218,38 @@ with 탭1:
             box = "ok" if 행["순수익"] > 0 else "bad"
             st.markdown(f'<div class="alert-box {box}" style="margin-bottom:6px;padding:10px 14px;"><b>{행["국가"]}</b> — {t("마진율")} {마진}%, {t("순수익")} ${행["순수익"]:,.0f}</div>', unsafe_allow_html=True)
 
+    # 4개 시즌 비교 — 선택된 국가/파라미터로 시즌별 예측 매출 비교
+    if not is_b2b:
+        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("4계절 예측 비교 — 동일 조건으로 시즌별 매출 차이")}</span></div>', unsafe_allow_html=True)
+        비교_국가 = 분析국가[0] if len(분析국가) == 1 else 분析국가[0]
+        계절_색_맵 = {"봄":"#8aab8e","여름":"#7b93a8","가을":"#c4956a","겨울":"#a98baa"}
+        계절_비교_결과 = []
+        for 계절키 in 계절_키목록:
+            m = 계절_대표월[계절키]
+            try:
+                r = requests.post(f"{서버주소}/api/predict/strategy", timeout=5, json={
+                    "주문수량":pred_수량,"제품단가":float(pred_단가),"제조원가":float(pred_원가),
+                    "월코드":m,"선택국가":비교_국가,"선택카테고리":선택카테고리}).json()
+                v = float(r.get("예측매출액", 0.0))
+            except:
+                v = float(pred_수량 * pred_단가 * 1.1)
+            계절_비교_결과.append({"계절": t(계절키), "매출": round(v, 2), "키": 계절키})
+        비교df = pd.DataFrame(계절_비교_결과)
+        강조색 = [계절_색_맵.get(행["키"],"#b8b0a8") for _, 행 in 비교df.iterrows()]
+        테두리 = [3 if 행["키"]==선택계절_키 else 0 for _, 행 in 비교df.iterrows()]
+        fig_계절 = go.Figure(go.Bar(
+            x=비교df["계절"], y=비교df["매출"],
+            marker=dict(color=강조색, line=dict(color="#2e2a26", width=테두리)),
+            text=비교df["매출"].apply(lambda x: f"${x:,.0f}"),
+            textposition="outside", textfont=dict(size=13, color="#8c8480"),
+        ))
+        pastel_layout(fig_계절, height=280)
+        fig_계절.update_yaxes(title_text=t("예측 매출 ($)"))
+        st.plotly_chart(fig_계절, use_container_width=True)
+        st.markdown(f"<p style='color:#8c8480;font-size:12px;margin-top:-8px;'>{t('굵은 테두리 = 현재 선택 시즌')} — {비교_국가}, {서브표시}</p>", unsafe_allow_html=True)
+
 with 탭2:
+    # ── 크로스셀링 분석 ──────────────────────────────────────────────
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("자전거 구매 연계 크로스셀링 분석")}</span></div>', unsafe_allow_html=True)
     st.markdown(f"<p style='color:#8c8480;font-size:13px;margin-bottom:20px;'>{t('자전거(Bikes) 구매 고객이 함께 구매한 카테고리·서브카테고리 패턴과 시즌별 분포를 CSV 실제 데이터 기반으로 분석합니다.')}</p>", unsafe_allow_html=True)
 
@@ -359,7 +390,8 @@ with 탭2:
                             <div class="strat-text">{t(insight_ko)}</div>
                         </div>""", unsafe_allow_html=True)
 
-with 탭3:
+    st.markdown("<hr style='border-color:#ddd8d0;margin:32px 0 20px 0;'>", unsafe_allow_html=True)
+    # ── 업셀 구매 예측 ───────────────────────────────────────────────
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#8aab8e"></div><span>{t("업셀 구매 예측 — Bikes 고객의 추가 구매 가능성")}</span></div>', unsafe_allow_html=True)
     st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:24px;'>{t('자전거를 구매한 고객이 Accessories / Clothing / Components도 구매할 가능성을 AI가 예측합니다.')}</p>", unsafe_allow_html=True)
 

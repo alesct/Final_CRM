@@ -313,14 +313,26 @@ with 탭2:
             fig.update_yaxes(title_text=t("금액 ($)"))
             fig.add_hline(y=0,line_dash="dot",line_color="#ddd8d0")
         else:
-            vals=[단일예측(q,단가,원가,월,기본국가,선택카테고리) for q in range(1,7)]
+            # 현재 월과 계절 대표월(1,4,7,10) 비교 — 월별 매출 차이를 시각화
+            계절_대표월_비교 = {"겨울(1월)":1,"봄(4월)":4,"여름(7월)":7,"가을(10월)":10}
+            월_색 = {1:"#a98baa",4:"#8aab8e",7:"#7b93a8",10:"#c4956a"}
             fig=go.Figure()
+            # 수량 곡선 — 선택된 월
+            vals=[단일예측(q,단가,원가,월,기본국가,선택카테고리) for q in range(1,7)]
             fig.add_trace(go.Scatter(x=list(range(1,7)),y=vals,mode="lines+markers",
-                line=dict(color="#7b93a8",width=2),marker=dict(color="#7b93a8",size=7,line=dict(color="#f7f5f2",width=2)),
-                fill="tozeroy",fillcolor="rgba(123,147,168,0.08)",name=t("예측 매출")))
+                line=dict(color="#7b93a8",width=3),marker=dict(color="#7b93a8",size=8,line=dict(color="#f7f5f2",width=2)),
+                fill="tozeroy",fillcolor="rgba(123,147,168,0.08)",name=f"{t('예측 매출')} ({월}{t('월')})"))
+            # 계절 대표월 단일 점 비교 — 수량=1 고정
+            for 라벨,m in 계절_대표월_비교.items():
+                if m != 월:
+                    v=단일예측(1,단가,원가,m,기본국가,선택카테고리)
+                    fig.add_trace(go.Scatter(x=[1],y=[v],mode="markers",
+                        marker=dict(color=월_색[m],size=10,symbol="diamond",line=dict(color="#f7f5f2",width=2)),
+                        name=t(라벨),showlegend=True))
             pastel_layout(fig,height=320)
             fig.update_xaxes(title_text=t("구매 수량"),tickmode="linear",dtick=1)
             fig.update_yaxes(title_text=t("예측 매출 ($)"))
+            fig.update_layout(legend=dict(orientation="h",yanchor="bottom",y=1.02,xanchor="left",x=0,font=dict(size=11)))
         st.plotly_chart(fig,use_container_width=True)
 
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("전체 국가 비교 — 동일 조건으로 국가별 예측 매출 및 순수익")}</span></div>', unsafe_allow_html=True)
