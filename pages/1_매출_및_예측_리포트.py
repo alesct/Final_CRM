@@ -282,7 +282,6 @@ with 탭2:
             <div class="fin-row"><span class="fin-label">{t("매출 산출 방식")}</span><span class="fin-value" style="font-size:13px;">{매출출처}</span></div>
             <div class="fin-row"><span class="fin-label">{t("수량")}</span><span class="fin-value">{수량}{t("개")}</span></div>
             <div class="fin-row"><span class="fin-label">{t("제품 단가")}</span><span class="fin-value">${단가:,}</span></div>
-            <div class="fin-row"><span class="fin-label">{t("분석 월")}</span><span class="fin-value">{월}월</span></div>
             <div class="fin-row"><span class="fin-label">{t("예측 총 매출")}</span><span class="fin-value">${예측매출:,}</span></div>
             <div class="fin-row"><span class="fin-label">{t("총 제조 원가")}</span><span class="fin-value">${총원가:,}</span></div>
             <div class="fin-row"><span class="fin-label">{t("마진율")}</span><span class="fin-value">{마진율}%</span></div>
@@ -313,7 +312,6 @@ with 탭2:
             fig.update_yaxes(title_text=t("금액 ($)"))
             fig.add_hline(y=0,line_dash="dot",line_color="#ddd8d0")
         else:
-            # 3D 예측 곡면 — 수량 × 단가 × 예측 매출
             _q_range=list(range(1,7))
             _p_range=[int(단가*r) for r in [0.5,0.7,0.85,1.0,1.15,1.3,1.5]]
             _Q,_P=np.meshgrid(_q_range,_p_range)

@@ -103,8 +103,20 @@ st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:24px;'>{t('�
 
 계절_표시목록 = [t(k) for k in 계절_키목록]
 
-f1, f2 = st.columns(2)
-with f1:
+with st.columns(2)[1]:
+    country_options = [t("전체 국가")] + 국가목록
+    선택국가 = st.selectbox(t("국가 필터"), country_options)
+    선택국가_내부 = "전체 국가" if 선택국가 == t("전체 국가") else 선택국가
+
+대표월 = 계절_대표월.get(계절_키목록[0])
+분析국가 = 국가목록 if 선택국가_내부 == "전체 국가" else [선택국가_내부]
+
+탭1, 탭2 = st.tabs([t("시즌별 매출 예측"), t("크로스셀링 분석 & 업셀 예측")])
+
+with 탭1:
+    st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("시즌별 AI 매출 예측 — 판매 시뮬레이션")}</span></div>', unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:20px;'>{t('선택한 시즌·카테고리·수량·단가로 각 국가별 예상 매출과 순수익을 실시간으로 예측합니다.')}</p>", unsafe_allow_html=True)
+
     선택계절_idx = st.radio(
         t("분석 시즌"),
         options=list(range(len(계절_키목록))),
@@ -114,19 +126,7 @@ with f1:
     )
     선택계절_키 = 계절_키목록[선택계절_idx]
     선택계절_표시 = 계절_표시목록[선택계절_idx]
-with f2:
-    country_options = [t("전체 국가")] + 국가목록
-    선택국가 = st.selectbox(t("국가 필터"), country_options)
-    선택국가_내부 = "전체 국가" if 선택국가 == t("전체 국가") else 선택국가
-
-대표월 = 계절_대표월[선택계절_키]
-분析국가 = 국가목록 if 선택국가_내부 == "전체 국가" else [선택국가_내부]
-
-탭1, 탭2 = st.tabs([t("시즌별 매출 예측"), t("크로스셀링 분석 & 업셀 예측")])
-
-with 탭1:
-    st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("시즌별 AI 매출 예측 — 판매 시뮬레이션")}</span></div>', unsafe_allow_html=True)
-    st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:20px;'>{t('선택한 시즌·카테고리·수량·단가로 각 국가별 예상 매출과 순수익을 실시간으로 예측합니다.')}</p>", unsafe_allow_html=True)
+    대표월 = 계절_대표월[선택계절_키]
 
     서브카테고리_단가표 = {
         "Road Bikes":(980,618),"Mountain Bikes":(667,364),"Touring Bikes":(935,581),
@@ -219,6 +219,9 @@ with 탭1:
             st.markdown(f'<div class="alert-box {box}" style="margin-bottom:6px;padding:10px 14px;"><b>{행["국가"]}</b> — {t("마진율")} {마진}%, {t("순수익")} ${행["순수익"]:,.0f}</div>', unsafe_allow_html=True)
 
 with 탭2:
+    선택계절_키 = 계절_키목록[0]
+    선택계절_표시 = 계절_표시목록[0]
+
     # ── 크로스셀링 분석 ──────────────────────────────────────────────
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("자전거 구매 연계 크로스셀링 분석")}</span></div>', unsafe_allow_html=True)
     st.markdown(f"<p style='color:#8c8480;font-size:13px;margin-bottom:20px;'>{t('자전거(Bikes) 구매 고객이 함께 구매한 카테고리·서브카테고리 패턴과 시즌별 분포를 CSV 실제 데이터 기반으로 분석합니다.')}</p>", unsafe_allow_html=True)
