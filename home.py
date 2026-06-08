@@ -22,6 +22,10 @@ def 메타조회():
 r2값 = 메타["모델R2"] if 메타["모델R2"] > 0 else 1.0
 r2 = f"{r2값:.4f}"
 
+피처_원본 = 메타.get("피처중요도", {})
+월_중요도 = 피처_원본.get("Month_num", 0)
+월_중요도_pct = f"{월_중요도*100:.1f}%"
+
 if "lang" not in st.session_state:
     st.session_state["lang"] = "ko"
 lang_init("home")
@@ -39,6 +43,7 @@ if lang != "ko":
         "IQR 이상치 제거, LabelEncoder", "타겟 변수", "API 프레임워크",
         "FastAPI 백엔드 연결됨", "서버 연결 실패 — uvicorn 실행 여부 확인",
         "주문 수량", "제품 단가", "제조 원가", "월 코드", "카테고리", "국가",
+        "월별 계절성 피처 (Month_num) 실제 중요도",
     ], lang)
 
 _, mid, _ = st.columns([1, 3, 1])
@@ -91,15 +96,21 @@ _, mid3, _ = st.columns([0.5, 3, 0.5])
 with mid3:
     st.markdown(f'<div class="section-header"><div class="section-dot"></div><span>{t("피처 중요도 — Random Forest Gini")}</span></div>', unsafe_allow_html=True)
 
-    피처_원본 = 메타.get("피처중요도", {})
     피처df = pd.DataFrame([
         {"피처": t(피처_한글명.get(k, k)), "중요도": v, "pct": f"{v*100:.1f}%"}
         for k, v in sorted(피처_원본.items(), key=lambda x: x[1])
     ])
 
+    bar_colors = []
+    for k in sorted(피처_원본.items(), key=lambda x: x[1]):
+        if k[0] == "Month_num":
+            bar_colors.append("#8aab8e")
+        else:
+            bar_colors.append("#7b93a8")
+
     fig1 = go.Figure(go.Bar(
         x=피처df["중요도"], y=피처df["피처"], orientation="h",
-        marker=dict(color=피처df["중요도"], colorscale=[[0,"#e8e4df"],[1,"#7b93a8"]], line=dict(width=0)),
+        marker=dict(color=bar_colors, line=dict(width=0)),
         text=피처df["pct"], textposition="outside",
         textfont=dict(family="DM Sans", size=14, color="#8c8480"),
     ))
@@ -107,6 +118,11 @@ with mid3:
     fig1.update_xaxes(showticklabels=False, showgrid=False)
     fig1.update_yaxes(tickfont=dict(family="DM Sans", size=15, color="#2e2a26"))
     st.plotly_chart(fig1, use_container_width=True)
+
+    월_색 = "#4e7a54" if 월_중요도 > 0.02 else "#8B6F47"
+    월_bg = "#f0f6f1" if 월_중요도 > 0.02 else "#f5f0eb"
+    월_bd = "#c2d9c5" if 월_중요도 > 0.02 else "#d9c9b5"
+    st.markdown(f'<div style="text-align:center;margin-bottom:20px;padding:12px 16px;background:{월_bg};border:1px solid {월_bd};border-radius:4px;color:{월_색};font-size:15px;">📅 {t("월별 계절성 피처 (Month_num) 실제 중요도")} — <b>{월_중요도_pct}</b></div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
     with col1:
