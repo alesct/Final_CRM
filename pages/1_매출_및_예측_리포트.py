@@ -256,7 +256,7 @@ with 탭2:
     with p4: 월 = st.slider(t("분석 월"), 1, 12, 6, key="sim_month")
     with p5: 선택국가 = st.selectbox(t("국가"), [t("전체 국가")]+국가목록, key="sim_country")
     if is_reseller:
-        st.markdown(f"<p style='color:#8c8480;font-size:12px;margin:-10px 0 10px;'>💡 {t('단가')} = {t('정상가')} (${단가:,}) → {t('도매 실제 청구단가')} ${int(단가*0.85):,} (15% {t('할인 적용')})</p>", unsafe_allow_html=True)
+        st.markdown(f"<p style='color:#8c8480;font-size:12px;margin:-10px 0 10px;'>{t('단가')} = {t('정상가')} (${단가:,}) → {t('도매 실제 청구단가')} ${int(단가*0.85):,} (15% {t('할인 적용')})</p>", unsafe_allow_html=True)
 
     기본국가 = 국가목록[0] if 선택국가 == t("전체 국가") else 선택국가
     서브표시 = 선택서브카테고리 if 선택서브카테고리 not in [t("전체 (평균)"), "전체 (평균)"] else 선택카테고리

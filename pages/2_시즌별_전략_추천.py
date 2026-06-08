@@ -23,13 +23,13 @@ def csv_로드():
     if os.path.exists(현재경로): return pd.read_csv(현재경로)
     return None
 
-def 시즌별_B2C_예측(수량, 단가, 원가, 계절_월, 국가목록_t, 카테고리):
+def 시즌별_B2C_예측(수량, 단가, 원가, 대표월, 국가목록_t, 카테고리):
     결과 = []
     for 국가 in 국가목록_t:
         try:
             r = requests.post(f"{서버주소}/api/predict/strategy", timeout=5, json={
                 "주문수량":수량,"제품단가":float(단가),"제조원가":float(원가),
-                "월코드":계절_월,"선택국가":국가,"선택카테고리":카테고리}).json()
+                "월코드":대표월,"선택국가":국가,"선택카테고리":카테고리}).json()
             매출 = float(r.get("예측매출액", 0.0))
         except:
             매출 = float(수량 * 단가 * 1.1)
@@ -67,7 +67,7 @@ if lang != "ko":
         "미국 실적을 기준으로 시즌별 최고 카테고리를 타국가에 이식하기 위한 전략과, 자전거 구매와 연계한 크로스셀링 분석을 제공합니다.",
         "분석 시즌", "국가 필터", "전체 국가",
         "봄", "여름", "가을", "겨울",
-        "시즌별 매출 예측", "크로스셀링 분석",
+        "시즌별 매출 예측", "크로스셀링 분석", "업셀 구매 예측",
         "시즌별 AI 매출 예측 — 판매 시뮬레이션",
         "선택한 시즌·카테고리·수량·단가로 각 국가별 예상 매출과 순수익을 실시간으로 예측합니다.",
         "거래 유형", "일반 개인 고객 (B2C)", "도매 및 대리점 (B2B)",
@@ -75,9 +75,6 @@ if lang != "ko":
         "시즌별 예측 계산 중…", "전체 예측 총 매출", "전체 예측 순수익", "최고 예측 국가",
         "매출 산출 방식", "도매 단가 기반", "예측 매출", "순수익", "금액 ($)", "마진율",
         "예측 매출 ($)", "순수익 ($)",
-        "3D 예측 곡면 — 수량 × 단가 × 예측 매출",
-        "X축: 수량, Y축: 단가 범위 (현재 설정 ±50%), Z축: AI 예측 매출. 드래그로 회전하세요.",
-        "수량", "단가($)", "예측매출($)", "순수익($)",
         "자전거 구매 연계 크로스셀링 분석",
         "자전거(Bikes) 구매 고객이 함께 구매한 카테고리·서브카테고리 패턴과 시즌별 분포를 CSV 실제 데이터 기반으로 분석합니다.",
         "adventureworks_clean.csv 파일을 찾을 수 없습니다.",
@@ -86,6 +83,10 @@ if lang != "ko":
         "Bikes 구매 고객의 동반 구매 카테고리", "카테고리별 시즌 매출 패턴",
         "매출 ($)", "시즌별 데이터를 계산할 수 없습니다.",
         "크로스셀 전략 추천", "전체 국가", "주요 서브카테고리", "시즌 인사이트",
+        "업셀 구매 예측 — Bikes 고객의 추가 구매 가능성",
+        "자전거를 구매한 고객이 Accessories / Clothing / Components도 구매할 가능성을 AI가 예측합니다.",
+        "주문 수량", "제품 단가 ($)", "구매 월", "국가",
+        "카테고리별 구매 확률", "시즌 맞춤 전략 추천", "구매 가능성 높음", "구매 가능성 낮음",
     ], lang)
 
 top1, top2 = st.columns([6, 1])
@@ -104,20 +105,30 @@ st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:24px;'>{t('�
 
 f1, f2 = st.columns(2)
 with f1:
-    선택계절_표시 = st.select_slider(t("분석 시즌"), options=계절_표시목록)
-    선택계절_키 = 계절_키목록[계절_표시목록.index(선택계절_표시)]
+    선택계절_idx = st.radio(
+        t("분석 시즌"),
+        options=list(range(len(계절_키목록))),
+        format_func=lambda i: 계절_표시목록[i],
+        horizontal=True,
+        key="season_radio"
+    )
+    선택계절_키 = 계절_키목록[선택계절_idx]
+    선택계절_표시 = 계절_표시목록[선택계절_idx]
 with f2:
     country_options = [t("전체 국가")] + 국가목록
     선택국가 = st.selectbox(t("국가 필터"), country_options)
     선택국가_내부 = "전체 국가" if 선택국가 == t("전체 국가") else 선택국가
 
-탭2, 탭3, 탭4 = st.tabs([t("시즌별 매출 예측"), t("크로스셀링 분석"), t("업셀 구매 예측")])
+대표월 = 계절_대표월[선택계절_키]
+분析국가 = 국가목록 if 선택국가_내부 == "전체 국가" else [선택국가_내부]
 
-with 탭2:
+탭1, 탭2, 탭3 = st.tabs([t("시즌별 매출 예측"), t("크로스셀링 분석"), t("업셀 구매 예측")])
+
+with 탭1:
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("시즌별 AI 매출 예측 — 판매 시뮬레이션")}</span></div>', unsafe_allow_html=True)
     st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:20px;'>{t('선택한 시즌·카테고리·수량·단가로 각 국가별 예상 매출과 순수익을 실시간으로 예측합니다.')}</p>", unsafe_allow_html=True)
 
-    서브카테고리_단가표_탭2 = {
+    서브카테고리_단가표 = {
         "Road Bikes":(980,618),"Mountain Bikes":(667,364),"Touring Bikes":(935,581),
         "Mountain Frames":(300,200),"Road Frames":(280,180),"Touring Frames":(250,160),
         "Wheels":(120,60),"Helmets":(35,13),"Jerseys":(52,40),
@@ -125,57 +136,50 @@ with 탭2:
         "Bike Racks":(120,45),"Bottles and Cages":(7,3),"Hydration Packs":(55,21),
         "Fenders":(22,8),"Bike Stands":(159,59),"Vests":(64,24),
     }
-    카테고리별_서브_탭2 = {
+    카테고리별_서브 = {
         "Bikes":["Road Bikes","Mountain Bikes","Touring Bikes"],
         "Components":["Mountain Frames","Road Frames","Touring Frames","Wheels","Cranksets","Handlebars","Pedals"],
         "Accessories":["Helmets","Tires and Tubes","Bike Racks","Bottles and Cages","Hydration Packs","Fenders","Bike Stands"],
         "Clothing":["Jerseys","Shorts","Gloves","Vests","Caps","Socks"],
     }
 
-    t2_r1, t2_r2, t2_r3 = st.columns(3)
-    with t2_r1:
+    r1, r2, r3 = st.columns(3)
+    with r1:
         거래유형 = st.radio(t("거래 유형"), [t("일반 개인 고객 (B2C)"), t("도매 및 대리점 (B2B)")], horizontal=True)
-    with t2_r2:
-        선택카테고리_탭2 = st.selectbox(t("판매 카테고리"), 메타["카테고리목록"], key="tab2_cat")
-    with t2_r3:
-        서브목록_탭2 = 카테고리별_서브_탭2.get(선택카테고리_탭2, [])
-        선택서브_탭2 = st.selectbox(t("서브카테고리"), [t("전체 (평균)")] + 서브목록_탭2, key="tab2_sub")
+    with r2:
+        선택카테고리 = st.selectbox(t("판매 카테고리"), 메타["카테고리목록"], key="tab1_cat")
+    with r3:
+        서브목록 = 카테고리별_서브.get(선택카테고리, [])
+        선택서브 = st.selectbox(t("서브카테고리"), [t("전체 (평균)")] + 서브목록, key="tab1_sub")
 
     is_b2b = 거래유형 == t("도매 및 대리점 (B2B)")
-    이전키_탭2 = f"{선택카테고리_탭2}_{선택서브_탭2}"
-
-    if st.session_state.get("tab2_이전키") != 이전키_탭2:
-        if 선택서브_탭2 in 서브카테고리_단가표_탭2:
-            기본단가, 기본원가 = 서브카테고리_단가표_탭2[선택서브_탭2]
+    이전키 = f"{선택카테고리}_{선택서브}"
+    if st.session_state.get("tab1_이전키") != 이전키:
+        if 선택서브 in 서브카테고리_단가표:
+            기본단가, 기본원가 = 서브카테고리_단가표[선택서브]
         else:
             기본단가, 기본원가 = 500, 350
-        st.session_state["tab2_단가"] = 기본단가
-        st.session_state["tab2_원가"] = 기본원가
-        st.session_state["tab2_이전키"] = 이전키_탭2
+        st.session_state["tab1_단가"] = 기본단가
+        st.session_state["tab1_원가"] = 기본원가
+        st.session_state["tab1_이전키"] = 이전키
 
     p1, p2, p3 = st.columns(3)
     with p1:
         pred_수량 = st.slider(t("판매 수량"), 1, 100 if is_b2b else 10, 20 if is_b2b else 5, key="pred_qty")
     with p2:
-        pred_단가 = st.number_input(t("제품 단가 ($)"), min_value=1,
-            value=st.session_state.get("tab2_단가", 500), key="tab2_단가")
+        pred_단가 = st.number_input(t("제품 단가 ($)"), min_value=1, value=st.session_state.get("tab1_단가", 500), key="tab1_단가")
     with p3:
-        pred_원가 = st.number_input(t("제조 원가 ($)"), min_value=1,
-            value=st.session_state.get("tab2_원가", 350), key="tab2_원가")
-    if is_b2b:
-        st.markdown(f"<p style='color:#8c8480;font-size:12px;margin:-10px 0 10px;'>💡 {t('단가')} = {t('정상가')} (${pred_단가:,}) → {t('도매 실제 청구단가')} ${int(pred_단가*0.85):,} (15% {t('할인 적용')})</p>", unsafe_allow_html=True)
+        pred_원가 = st.number_input(t("제조 원가 ($)"), min_value=1, value=st.session_state.get("tab1_원가", 350), key="tab1_원가")
 
-    서브표시_탭2 = 선택서브_탭2 if 선택서브_탭2 not in [t("전체 (평균)"), "전체 (평균)"] else 선택카테고리_탭2
-    대표월 = 계절_대표월[선택계절_키]
-    분析국가 = 국가목록 if 선택국가_내부 == "전체 국가" else [선택국가_내부]
+    서브표시 = 선택서브 if 선택서브 not in [t("전체 (평균)"), "전체 (평균)"] else 선택카테고리
 
     with st.spinner(t("시즌별 예측 계산 중…")):
         if is_b2b:
             pred_df = 시즌별_B2B_예측(pred_수량, pred_단가, pred_원가, tuple(분析국가))
-            매출방식 = f"{t('도매 단가 기반')} — {서브표시_탭2}"
+            매출방식 = f"{t('도매 단가 기반')} — {서브표시}"
         else:
-            pred_df = 시즌별_B2C_예측(pred_수량, pred_단가, pred_원가, 대표월, tuple(분析국가), 선택카테고리_탭2)
-            매출방식 = f"Random Forest AI — {서브표시_탭2}"
+            pred_df = 시즌별_B2C_예측(pred_수량, pred_단가, pred_원가, 대표월, tuple(분析국가), 선택카테고리)
+            매출방식 = f"Random Forest AI — {서브표시} ({선택계절_표시})"
 
     총예측매출 = pred_df["예측매출"].sum()
     총순수익 = pred_df["순수익"].sum()
@@ -214,44 +218,7 @@ with 탭2:
             box = "ok" if 행["순수익"] > 0 else "bad"
             st.markdown(f'<div class="alert-box {box}" style="margin-bottom:6px;padding:10px 14px;"><b>{행["국가"]}</b> — {t("마진율")} {마진}%, {t("순수익")} ${행["순수익"]:,.0f}</div>', unsafe_allow_html=True)
 
-    st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("3D 예측 곡면 — 수량 × 단가 × 예측 매출")}</span></div>', unsafe_allow_html=True)
-    st.markdown(f"<p style='color:#8c8480;font-size:13px;margin-bottom:12px;'>{t('X축: 수량, Y축: 단가 범위 (현재 설정 ±50%), Z축: AI 예측 매출. 드래그로 회전하세요.')}</p>", unsafe_allow_html=True)
-    if not is_b2b:
-        _q2 = list(range(1,11))
-        _p2 = [int(pred_단가*r) for r in [0.5,0.7,0.85,1.0,1.15,1.3,1.5]]
-        _Q2,_P2 = np.meshgrid(_q2,_p2)
-        _Z2 = np.zeros_like(_Q2, dtype=float)
-        for _ii in range(_Q2.shape[0]):
-            for _jj in range(_Q2.shape[1]):
-                try:
-                    _r2 = requests.post(f"{서버주소}/api/predict/strategy", timeout=3, json={
-                        "주문수량":int(_Q2[_ii,_jj]),"제품단가":float(_P2[_ii,_jj]),
-                        "제조원가":float(pred_원가),"월코드":대표월,
-                        "선택국가":분析국가[0] if 분析국가 else 국가목록[0],
-                        "선택카테고리":선택카테고리_탭2}).json()
-                    _Z2[_ii,_jj] = float(_r2.get("예측매출액",_Q2[_ii,_jj]*_P2[_ii,_jj]))
-                except: _Z2[_ii,_jj] = float(_Q2[_ii,_jj]*_P2[_ii,_jj]*1.1)
-        cs = [[0,"#e8e4df"],[0.5,"#a8b8c8"],[1,"#7b93a8"]]
-        cb_title = t("예측매출($)")
-    else:
-        _q2 = list(range(5,101,5))
-        _p2 = [int(pred_단가*r) for r in [0.5,0.7,0.85,1.0,1.15,1.3,1.5]]
-        _Q2,_P2 = np.meshgrid(_q2,_p2)
-        _Z2 = _Q2*_P2*0.85-_Q2*pred_원가
-        cs = [[0,"#b56b6b"],[0.4,"#e8e4df"],[1,"#8aab8e"]]
-        cb_title = t("순수익($)")
-    fig_3d2 = go.Figure(data=[go.Surface(z=_Z2,x=_q2,y=_p2,colorscale=cs,showscale=True,
-        colorbar=dict(title=cb_title,tickformat="$,.0f",tickfont=dict(size=10,color="#8c8480"),title_font=dict(size=10,color="#8c8480")))])
-    fig_3d2.update_layout(paper_bgcolor="rgba(0,0,0,0)",
-        scene=dict(bgcolor="#f7f5f2",
-            xaxis=dict(title=t("수량"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480"),
-            yaxis=dict(title=t("단가($)"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480"),
-            zaxis=dict(title=cb_title,gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480",tickformat="$,.0f"),
-            camera=dict(eye=dict(x=1.8,y=-1.8,z=1.2))),
-        height=480,margin=dict(l=0,r=0,t=20,b=0))
-    st.plotly_chart(fig_3d2, use_container_width=True)
-
-with 탭3:
+with 탭2:
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("자전거 구매 연계 크로스셀링 분석")}</span></div>', unsafe_allow_html=True)
     st.markdown(f"<p style='color:#8c8480;font-size:13px;margin-bottom:20px;'>{t('자전거(Bikes) 구매 고객이 함께 구매한 카테고리·서브카테고리 패턴과 시즌별 분포를 CSV 실제 데이터 기반으로 분석합니다.')}</p>", unsafe_allow_html=True)
 
@@ -264,12 +231,7 @@ with 탭3:
         카테고리컬럼 = next((c for c in df.columns if "category" in c.lower() and "sub" not in c.lower()), None)
         서브카테고리컬럼 = next((c for c in df.columns if "subcategory" in c.lower() or "sub_category" in c.lower()), None)
         고객컬럼 = next((c for c in df.columns if "customerkey" in c.lower() or "customer_key" in c.lower()), None)
-        날짜컬럼 = None
-        for c in df.columns:
-            if c.lower().replace(" ","").replace("_","") in ["orderdate","salesdate"]:
-                날짜컬럼 = c; break
-        if not 날짜컬럼:
-            날짜컬럼 = next((c for c in df.columns if "date" in c.lower() and "key" not in c.lower() and "due" not in c.lower()), None)
+        월컬럼 = next((c for c in df.columns if "month_num" in c.lower() or "month" in c.lower()), None)
 
         if not 카테고리컬럼 or not 매출컬럼:
             st.warning(t("카테고리 또는 매출 컬럼을 찾을 수 없습니다."))
@@ -309,15 +271,14 @@ with 탭3:
 
             계절순서 = ["봄","여름","가을","겨울"]
             계절카테고리 = pd.DataFrame()
-            if 날짜컬럼:
-                try: 국가필터df["_월번호"] = pd.to_datetime(국가필터df[날짜컬럼], errors="coerce").dt.month
-                except: 국가필터df["_월번호"] = np.nan
+            if 월컬럼:
+                국가필터df["_월번호"] = pd.to_numeric(국가필터df[월컬럼], errors="coerce").replace(0, np.nan)
             else:
-                월컬럼 = next((c for c in 국가필터df.columns if "month" in c.lower()), None)
-                국가필터df["_월번호"] = pd.to_numeric(국가필터df[월컬럼], errors="coerce").replace(0,np.nan) if 월컬럼 else np.nan
+                국가필터df["_월번호"] = np.nan
             국가필터df["_계절"] = 국가필터df["_월번호"].map(월_to_계절)
             비bikes_df = 국가필터df[국가필터df[카테고리컬럼].str.strip().str.lower() != "bikes"]
             유효df = 비bikes_df[비bikes_df["_계절"].notna()]
+
             if len(유효df) > 0:
                 계절카테고리 = (유효df.groupby(["_계절",카테고리컬럼])[매출컬럼].sum().reset_index())
                 계절카테고리.columns = ["계절","카테고리","매출"]
@@ -340,7 +301,7 @@ with 탭3:
                         text=동반df_raw["총매출"].apply(lambda x: f"${x/1000:.0f}K"),
                         textposition="outside",textfont=dict(size=13,color="#8c8480"),
                         customdata=동반df_raw["구매건수"],
-                        hovertemplate="카테고리: %{x}<br>총매출: $%{y:,.0f}<br>건수: %{customdata}<extra></extra>"))
+                        hovertemplate="%{x}<br>$%{y:,.0f}<br>%{customdata}<extra></extra>"))
                     pastel_layout(fig3,height=280,margin=dict(l=10,r=20,t=20,b=10))
                     fig3.update_yaxes(title_text=t("매출 ($)"),tickformat="$,.0f")
                     st.plotly_chart(fig3,use_container_width=True)
@@ -364,9 +325,9 @@ with 탭3:
                 if len(동반df_raw) > 0:
                     국가명표시 = 선택국가_내부 if 선택국가_내부 != "전체 국가" else t("전체 국가")
                     전략맵_ko = {
-                        "Accessories": lambda 행, 국가, 계절: f"{국가} 자전거 구매 고객 {int(행['구매건수']):,}명이 Accessories를 동반 구매했습니다 (${행['총매출']/1000:.0f}K, {행['총매출']/bikes_총매출*100:.1f}%). {계절} 자전거 판매 시점에 헬멧·타이어·잠금장치 번들을 제안하십시오.",
-                        "Components": lambda 행, 국가, 계절: f"{국가} 자전거 구매 고객 {int(행['구매건수']):,}명이 Components를 동반 구매했습니다 (${행['총매출']/1000:.0f}K, {행['총매출']/bikes_총매출*100:.1f}%). {계절} 고관여 고객에게 프레임·휠 업그레이드 패키지를 추가 제안하십시오.",
-                        "Clothing": lambda 행, 국가, 계절: f"{국가} 자전거 구매 고객 {int(행['구매건수']):,}명이 Clothing을 동반 구매했습니다 (${행['총매출']/1000:.0f}K, {행['총매출']/bikes_총매출*100:.1f}%). {계절} 결제 완료 화면에서 저지·반바지 세트를 즉시 추천하십시오.",
+                        "Accessories": lambda 행, 국가, 계절: f"{국가} 자전거 구매 고객 {int(행['구매건수']):,}명이 Accessories를 동반 구매했습니다 (${행['총매출']/1000:.0f}K). {계절} 자전거 판매 시점에 헬멧·타이어·잠금장치 번들을 제안하십시오.",
+                        "Components": lambda 행, 국가, 계절: f"{국가} 자전거 구매 고객 {int(행['구매건수']):,}명이 Components를 동반 구매했습니다 (${행['총매출']/1000:.0f}K). {계절} 고관여 고객에게 프레임·휠 업그레이드 패키지를 추가 제안하십시오.",
+                        "Clothing": lambda 행, 국가, 계절: f"{국가} 자전거 구매 고객 {int(행['구매건수']):,}명이 Clothing을 동반 구매했습니다 (${행['총매출']/1000:.0f}K). {계절} 결제 완료 화면에서 저지·반바지 세트를 즉시 추천하십시오.",
                     }
                     for _, 행 in 동반df_raw.iterrows():
                         cat = 행[카테고리컬럼]
@@ -398,23 +359,24 @@ with 탭3:
                             <div class="strat-text">{t(insight_ko)}</div>
                         </div>""", unsafe_allow_html=True)
 
-with 탭4:
-    st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#8aab8e"></div><span>{t("구매 가능성 예측 — 이 고객이 실제로 구매할까?")}</span></div>', unsafe_allow_html=True)
-    st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:24px;'>{t('고객 프로필(수량, 단가, 국가, 월)을 입력하면 AI가 이 거래가 실제 구매로 이어질 가능성을 예측합니다. B2C 개인 고객과 B2B 도매 대리점을 구분하여 분석합니다.')}</p>", unsafe_allow_html=True)
+with 탭3:
+    st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#8aab8e"></div><span>{t("업셀 구매 예측 — Bikes 고객의 추가 구매 가능성")}</span></div>', unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:24px;'>{t('자전거를 구매한 고객이 Accessories / Clothing / Components도 구매할 가능성을 AI가 예측합니다.')}</p>", unsafe_allow_html=True)
 
     u1, u2, u3, u4 = st.columns(4)
     with u1:
-        up_수량 = st.slider(t("주문 수량"), 1, 50, 3, key="up_qty")
+        up_수량 = st.slider(t("주문 수량"), 1, 10, 2, key="up_qty")
     with u2:
         up_단가 = st.number_input(t("제품 단가 ($)"), min_value=1, value=700, key="up_price")
     with u3:
-        up_월 = st.slider(t("구매 월"), 1, 12, 계절_대표월[선택계절_키], key="up_month")
+        up_월 = 대표월
+        st.markdown(f"<p style='color:#8c8480;font-size:13px;padding-top:8px;'>{t('구매 월')}: <b>{up_월}월</b> ({선택계절_표시})</p>", unsafe_allow_html=True)
     with u4:
         up_국가목록 = [t("전체 국가")] + 국가목록
         up_국가_선택 = st.selectbox(t("국가"), up_국가목록, key="up_country")
-        up_국가 = 국가목록[0] if up_국가_선택 == t("전체 국가") else up_국가_선택
+        up_국가 = 분析국가[0] if up_국가_선택 == t("전체 국가") else up_국가_선택
 
-    up_원가 = st.number_input(t("제조 원가 ($)"), min_value=1, value=400, key="up_cost")
+    카테고리_색상맵 = {"Accessories": "#8aab8e", "Clothing": "#c4956a", "Components": "#a98baa"}
 
     try:
         up_result = requests.post(f"{서버주소}/api/predict/upsell", timeout=5, json={
@@ -425,75 +387,67 @@ with 탭4:
         }).json()
         카테고리별예측 = up_result.get("카테고리별예측", {})
         최고추천 = up_result.get("최고추천카테고리", "Accessories")
-        up_계절 = up_result.get("계절", "봄")
         api_ok = True
     except:
-        카테고리별예측 = {}
-        최고추천 = ""
-        up_계절 = 선택계절_키
+        카테고리별예측 = {
+            "Accessories": {"확률": 65.0, "예측": "구매 가능성 높음", "정확도": 0.0, "추천": "서버 연결 필요"},
+            "Clothing": {"확률": 40.0, "예측": "구매 가능성 낮음", "정확도": 0.0, "추천": "서버 연결 필요"},
+            "Components": {"확률": 35.0, "예측": "구매 가능성 낮음", "정확도": 0.0, "추천": "서버 연결 필요"},
+        }
+        최고추천 = "Accessories"
         api_ok = False
 
-    b2c_확률 = 0.0
-    b2b_확률 = 0.0
-    if api_ok and 카테고리별예측:
-        b2c_확률 = sum(v["확률"] for v in 카테고리별예측.values()) / len(카테고리별예측)
-        b2b_확률 = 100 - b2c_확률
-
-    구매가능성 = b2c_확률
-    고객유형예측 = t("개인 고객 구매 가능성 높음") if 구매가능성 >= 50 else t("도매 대리점 거래 가능성 높음")
-    결과색 = "#7b93a8" if 구매가능성 >= 50 else "#8B6F47"
-    결과bg = "#eef2f5" if 구매가능성 >= 50 else "#f5f0eb"
-
-    st.markdown(f"""
-    <div style="text-align:center;padding:28px;background:{결과bg};border:2px solid {결과색};border-radius:8px;margin:20px 0;">
-        <div style="font-family:'Cormorant',serif;font-size:72px;font-weight:700;color:{결과색};line-height:1;">
-            {구매가능성:.0f}%
-        </div>
-        <div style="font-family:'DM Sans',sans-serif;font-size:16px;color:#8c8480;margin-top:8px;">
-            {고객유형예측}
-        </div>
-    </div>""", unsafe_allow_html=True)
+    st.markdown('<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin:16px 0;">', unsafe_allow_html=True)
+    for 카t, 데이터 in 카테고리별예측.items():
+        확률 = 데이터["확률"]
+        색 = 카테고리_색상맵.get(카t, "#7b93a8")
+        강조 = f"border:2px solid {색}" if 카t == 최고추천 else "border:1px solid var(--border)"
+        st.markdown(f"""<div class="kpi-card" style="{강조};border-top:3px solid {색};">
+            <div class="kpi-val" style="color:{색};">{확률:.0f}%</div>
+            <div class="kpi-label">{카t}</div>
+            <div style="font-size:12px;color:#8c8480;margin-top:4px;">{t(데이터['예측'])}</div>
+        </div>""", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     ca, cb = st.columns(2)
     with ca:
-        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("구매 유형 확률 분포")}</span></div>', unsafe_allow_html=True)
-        fig_up = go.Figure(go.Pie(
-            labels=[t("개인 구매"), t("도매 거래")],
-            values=[round(구매가능성, 1), round(100-구매가능성, 1)],
-            hole=0.55,
-            marker=dict(colors=["#7b93a8", "#8B6F47"], line=dict(color="#f7f5f2", width=3)),
-            textfont=dict(family="DM Sans", size=16),
-            textinfo="label+percent",
-            hovertemplate="<b>%{label}</b><br>%{value:.1f}%<extra></extra>",
+        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("카테고리별 구매 확률")}</span></div>', unsafe_allow_html=True)
+        카t목록 = list(카테고리별예측.keys())
+        확률목록 = [카테고리별예측[k]["확률"] for k in 카t목록]
+        색목록 = [카테고리_색상맵.get(k, "#7b93a8") for k in 카t목록]
+        fig_up = go.Figure(go.Bar(
+            x=확률목록, y=카t목록, orientation="h",
+            marker=dict(color=색목록, line=dict(width=0)),
+            text=[f"{v:.1f}%" for v in 확률목록],
+            textposition="outside",
+            textfont=dict(family="DM Sans", size=14, color="#8c8480"),
         ))
-        pastel_layout(fig_up, height=300, margin=dict(l=10, r=10, t=20, b=10))
-        fig_up.update_layout(showlegend=False)
+        pastel_layout(fig_up, height=260, margin=dict(l=10, r=80, t=10, b=10))
+        fig_up.update_xaxes(range=[0, 110], showticklabels=False, showgrid=False)
+        fig_up.add_vline(x=50, line_dash="dot", line_color="#ddd8d0")
+        fig_up.update_yaxes(tickfont=dict(family="DM Sans", size=15, color="#2e2a26"))
         st.plotly_chart(fig_up, use_container_width=True)
+        st.markdown(f"<p style='color:#8c8480;font-size:12px;margin-top:-8px;'>{t('점선(50%) 기준 오른쪽 = 구매 가능성 높음')}</p>", unsafe_allow_html=True)
 
     with cb:
-        마진율 = int((up_단가 - up_원가) / up_단가 * 100) if up_단가 > 0 else 0
-        st.markdown(f"""
-        <div class="fin-card" style="margin-top:12px;">
-            <div class="fin-row"><span class="fin-label">{t("구매 가능성")}</span><span class="fin-value" style="color:{결과색};">{구매가능성:.1f}%</span></div>
-            <div class="fin-row"><span class="fin-label">{t("예측 고객 유형")}</span><span class="fin-value">{고객유형예측}</span></div>
-            <div class="fin-row"><span class="fin-label">{t("주문 수량")}</span><span class="fin-value">{up_수량}</span></div>
-            <div class="fin-row"><span class="fin-label">{t("제품 단가")}</span><span class="fin-value">${up_단가:,}</span></div>
-            <div class="fin-row"><span class="fin-label">{t("마진율")}</span><span class="fin-value">{마진율}%</span></div>
-            <div class="fin-row"><span class="fin-label">{t("분석 월")}</span><span class="fin-value">{up_월}월</span></div>
-            <div class="fin-row"><span class="fin-label">{t("국가")}</span><span class="fin-value">{up_국가}</span></div>
-        </div>""", unsafe_allow_html=True)
-
-        if 구매가능성 >= 70:
-            insight = t("높은 구매 가능성 — 즉시 맞춤 프로모션을 제안하세요.")
-        elif 구매가능성 >= 50:
-            insight = t("중간 구매 가능성 — 할인 쿠폰이나 번들 제안이 효과적입니다.")
-        else:
-            insight = t("낮은 구매 가능성 — 리타겟팅 캠페인이나 가격 조정을 검토하세요.")
-        box = "ok" if 구매가능성 >= 50 else "bad"
-        st.markdown(f'<div class="alert-box {box}" style="margin-top:12px;">{insight}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("시즌 맞춤 전략 추천")}</span></div>', unsafe_allow_html=True)
+        for 카t, 데이터 in 카테고리별예측.items():
+            색 = 카테고리_색상맵.get(카t, "#7b93a8")
+            확률 = 데이터["확률"]
+            box_bg = "#f0f6f1" if 확률 >= 50 else "#fdf1f1"
+            box_bd = "#c2d9c5" if 확률 >= 50 else "#e0bcbc"
+            box_c = "#4e7a54" if 확률 >= 50 else "#b56b6b"
+            정확도표시 = f" ({t('모델 정확도')} {데이터['정확도']*100:.1f}%)" if 데이터['정확도'] > 0 else ""
+            st.markdown(f"""<div class="strat-card" style="border-left-color:{색};margin-bottom:10px;">
+                <div class="strat-country">Bikes → {카t}{정확도표시}</div>
+                <div class="strat-text">{t(데이터['추천'])}</div>
+                <div style="margin-top:8px;background:{box_bg};border:1px solid {box_bd};border-radius:4px;padding:6px 10px;font-size:13px;color:{box_c};">
+                    {확률:.1f}% {t(데이터['예측'])}
+                </div>
+            </div>""", unsafe_allow_html=True)
 
     if not api_ok:
-        st.markdown(f'<div class="alert-box bad" style="margin-top:16px;">서버 미연결 — uvicorn 실행 후 새로고침하세요.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="alert-box bad" style="margin-top:16px;">서버 미연결 — uvicorn 실행 후 새로고침하세요.</div>', unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 render_footer()
