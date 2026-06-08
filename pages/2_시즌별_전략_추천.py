@@ -218,7 +218,7 @@ with 탭1:
             st.markdown(f'<div class="alert-box {box}" style="margin-bottom:6px;padding:10px 14px;"><b>{행["국가"]}</b> — {t("마진율")} {마진}%, {t("순수익")} ${행["순수익"]:,.0f}</div>', unsafe_allow_html=True)
 
 with 탭2:
-    
+
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("Bikes 구매 고객 크로스셀링 분석")}</span></div>', unsafe_allow_html=True)
     st.markdown(f"<p style='color:#8c8480;font-size:13px;margin-bottom:20px;'>{t('자전거(Bikes) 구매 고객이 함께 구매한 카테고리 패턴과 시즌별 분포를 실제 CSV 데이터로 분석합니다.')}</p>", unsafe_allow_html=True)
 
@@ -244,7 +244,6 @@ with 탭2:
 
             bikes_mask = 국가필터df[카테고리컬럼].str.strip().str.lower() == "bikes"
 
-            # Bikes 구매 고객 집합
             bikes_고객 = set()
             if 고객컬럼 and bikes_mask.sum() > 0:
                 bikes_고객 = set(
@@ -326,7 +325,6 @@ with 탭2:
                     st.plotly_chart(fig4, use_container_width=True)
 
             with c2:
-                # 전략 카드
                 st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("크로스셀 전략")}</span></div>', unsafe_allow_html=True)
                 국가명표시 = 선택국가_내부 if 선택국가_내부 != "전체 국가" else t("전체 국가")
 
@@ -371,7 +369,6 @@ with 탭2:
     with u2:
         up_단가 = st.number_input(t("제품 단가 ($)"), min_value=1, value=700, key="up_price")
     with u3:
-        # 업셀 전용 시즌 선택
         업셀_계절_idx = st.radio(
             t("분석 시즌"),
             options=list(range(len(계절_키목록))),
@@ -410,7 +407,7 @@ with 탭2:
         api_계절 = 업셀_계절_키
         api_ok = False
 
-    st.markdown(f"<p style='color:#8c8480;font-size:13px;margin:4px 0 12px;'>📅 {업셀_계절_표시} (월 {up_월}) · {up_국가_선택} · {up_수량}개 · ${up_단가:,}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#8c8480;font-size:13px;margin:4px 0 12px;'>{업셀_계절_표시} ({t('월')} {up_월}) · {up_국가_선택} · {up_수량}{t('개')} · ${up_단가:,}</p>", unsafe_allow_html=True)
     st.markdown('<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:0 0 20px 0;">', unsafe_allow_html=True)
     for 카t, 데이터 in 카테고리별예측.items():
         확률 = 데이터["확률"]

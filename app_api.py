@@ -18,9 +18,9 @@ CSV_경로 = os.path.join(BASE_DIR, "adventureworks_clean.csv")
 예측모델 = None
 업셀_모델 = {}
 업셀_정확도 = {}
-국가목록 = []          
+국가목록 = []
 카테고리목록 = []
-국가인코더 = None      
+국가인코더 = None
 카테고리인코더 = None
 피처중요도 = {}
 모델_r2 = 0.0
@@ -62,14 +62,13 @@ def 시스템초기화():
 
     try:
         원본_전체 = pd.read_csv(CSV_경로)
-        print(f"CSV loaded: {len(원본_전체)} rows from {CSV_경로}")
         원본_전체.columns = 원본_전체.columns.str.strip()
+        print(f"CSV loaded: {len(원본_전체)} rows")
 
         월_유효비율 = ((원본_전체["Month_num"] >= 1) & (원본_전체["Month_num"] <= 12)).mean()
         print(f"Month_num valid ratio: {월_유효비율:.2%}")
 
         if 월_유효비율 < 0.5:
-            print("Month_num bad — attempting Excel repair")
             try:
                 url = "https://github.com/microsoft/powerbi-desktop-samples/raw/main/AdventureWorks%20Sales%20Sample/AdventureWorks%20Sales.xlsx"
                 날짜_데이터 = pd.read_excel(url, sheet_name="Date_data")
@@ -81,31 +80,37 @@ def 시스템초기화():
                 datekey_to_month = 날짜_데이터.set_index("DateKey")["Month_num_fixed"].to_dict()
                 if "OrderDateKey" in 원본_전체.columns:
                     원본_전체["Month_num"] = 원본_전체["OrderDateKey"].map(datekey_to_month).fillna(0).astype(int)
-                    유효후 = ((원본_전체["Month_num"] >= 1) & (원본_전체["Month_num"] <= 12)).mean()
-                    print(f"Excel repair done — valid: {유효후:.2%}")
-                else:
-                    print("OrderDateKey column missing — cannot repair month")
+                    print(f"Month repair done: {((원본_전체['Month_num'] >= 1) & (원본_전체['Month_num'] <= 12)).mean():.2%}")
             except Exception as ex:
-                print(f"Excel load failed: {ex}")
-        else:
-            print(f"Month_num OK (valid ratio {월_유효비율:.2%})")
+                print(f"Month repair failed: {ex}")
 
         데이터프레임 = 원본_전체.copy()
+
     except Exception as e:
-        print(f"ERROR loading CSV: {e} — using fallback data")
+        print(f"CSV load error: {e} — using fallback")
         난수 = np.random.RandomState(42)
-        n = 1500
+        n = 2000
         나라들 = ["United States", "Australia", "Canada", "United Kingdom", "France", "Germany"]
         카테고리들 = ["Bikes", "Accessories", "Clothing", "Components"]
+        월목록 = 난수.randint(1, 13, n)
+        카t목록 = 난수.choice(카테고리들, n)
+        나라목록 = 난수.choice(나라들, n)
+        단가_베이스 = np.where(카t목록 == "Bikes", 난수.uniform(400, 2000, n),
+                     np.where(카t목록 == "Components", 난수.uniform(50, 400, n),
+                     np.where(카t목록 == "Accessories", 난수.uniform(10, 150, n),
+                     난수.uniform(20, 120, n))))
+        원가_베이스 = 단가_베이스 * 난수.uniform(0.35, 0.75, n)
+        수량 = 난수.randint(1, 6, n)
+        매출 = 단가_베이스 * 수량 * (1 + (월목록 / 12) * 0.15)
         원본_전체 = pd.DataFrame({
-            "Order Quantity": 난수.randint(1, 6, n),
-            "Unit Price": 난수.uniform(10, 2200, n),
-            "Standard Cost": 난수.uniform(5, 1100, n),
-            "Sales Amount": 난수.uniform(20, 9000, n),
-            "Month_num": 난수.randint(1, 13, n),
-            "Country": 난수.choice(나라들, n),
-            "Category": 난수.choice(카테고리들, n),
-            "CustomerKey": 난수.randint(1, 300, n),
+            "Order Quantity": 수량,
+            "Unit Price": 단가_베이스,
+            "Standard Cost": 원가_베이스,
+            "Sales Amount": 매출,
+            "Month_num": 월목록,
+            "Country": 나라목록,
+            "Category": 카t목록,
+            "CustomerKey": 난수.randint(1, 500, n),
             "OrderDateKey": 난수.randint(20130101, 20160101, n),
         })
         데이터프레임 = 원본_전체.copy()
@@ -114,26 +119,36 @@ def 시스템초기화():
     카테고리인코더 = LabelEncoder()
     데이터프레임["Country_enc"] = 국가인코더.fit_transform(데이터프레임["Country"].astype(str))
     데이터프레임["Category_enc"] = 카테고리인코더.fit_transform(데이터프레임["Category"].astype(str))
-    국가목록 = list(국가인코더.classes_)   # sorted alphabetically by LabelEncoder
+    국가목록 = list(국가인코더.classes_)
     카테고리목록 = list(카테고리인코더.classes_)
-    print(f"Countries encoded: {국가목록}")
-    print(f"Categories encoded: {카테고리목록}")
+    print(f"Countries: {국가목록}")
+    print(f"Categories: {카테고리목록}")
 
     X = 데이터프레임[피처_컬럼].copy()
-    데이터프레임["_unit_sales"] = (
-        데이터프레임["Sales Amount"] / 데이터프레임["Order Quantity"].replace(0, np.nan)
-    ).fillna(0)
-    y_reg = np.log1p(데이터프레임["_unit_sales"])
+
+    total_revenue = 데이터프레임["Sales Amount"].clip(lower=1)
+    total_cost = 데이터프레임["Standard Cost"] * 데이터프레임["Order Quantity"]
+    gross_margin = (total_revenue - total_cost) / total_revenue
+    gross_margin = gross_margin.clip(-1, 1)
+
+    y_reg = gross_margin
 
     X_학습, X_검증, y_학습, y_검증 = train_test_split(X, y_reg, test_size=0.2, random_state=42)
-    예측모델 = RandomForestRegressor(n_estimators=200, min_samples_leaf=5, random_state=42)
+    예측모델 = RandomForestRegressor(
+        n_estimators=300,
+        max_depth=12,
+        min_samples_leaf=3,
+        max_features="sqrt",
+        random_state=42
+    )
     예측모델.fit(X_학습, y_학습)
     모델_r2 = round(float(r2_score(y_검증, 예측모델.predict(X_검증))), 4)
     피처중요도 = {
         피처: round(float(중요도), 4)
         for 피처, 중요도 in zip(피처_컬럼, 예측모델.feature_importances_)
     }
-    print(f"Model R²: {모델_r2}, Feature importances: {피처중요도}")
+    print(f"Model R²: {모델_r2}")
+    print(f"Feature importances: {피처중요도}")
 
     업셀_피처 = ["Order Quantity", "Unit Price", "Month_num", "Country_enc"]
     업셀_타겟_카테고리 = ["Accessories", "Clothing", "Components"]
@@ -164,7 +179,7 @@ def 시스템초기화():
             clf.fit(X_u_학습, y_u_학습)
             업셀_모델[타겟] = clf
             업셀_정확도[타겟] = round(float(clf.score(X_u_검증, y_u_검증)), 4)
-            print(f"Upsell model [{타겟}] accuracy: {업셀_정확도[타겟]}")
+            print(f"Upsell [{타겟}] accuracy: {업셀_정확도[타겟]}")
 
 @애플리케이션.get("/api/metadata")
 def 메타데이터조회():
@@ -357,8 +372,9 @@ def 전략예측실행(요청데이터: 시뮬레이션입력):
         "Country_enc": 국가인덱스,
     }])
 
-    예측_log_unit = float(예측모델.predict(예측입력)[0])
-    예측매출 = np.expm1(예측_log_unit) * 요청데이터.주문수량
+    예측_마진율 = float(예측모델.predict(예측입력)[0])
+    예측_마진율 = max(-1.0, min(1.0, 예측_마진율))
+    예측매출 = 요청데이터.제품단가 * 요청데이터.주문수량 * (1 + 예측_마진율 * 0.15)
 
     조건df = 데이터프레임[
         (데이터프레임["Country"] == 요청데이터.선택국가) &
@@ -374,6 +390,7 @@ def 전략예측실행(요청데이터: 시뮬레이션입력):
     return {
         "예측매출액": max(0.0, round(예측매출, 2)),
         "시장점유율": round(시장점유율 * 100, 1),
+        "예측마진율": round(예측_마진율 * 100, 1),
     }
 
 @애플리케이션.post("/api/predict/upsell")
@@ -437,10 +454,8 @@ def 업셀예측(요청데이터: 업셀입력):
         "계절": 계절,
     }
 
-
 @애플리케이션.get("/api/country/price_range")
 def 국가별단가범위조회():
-    """국가·카테고리별 실제 평균 단가와 표준편차를 반환 — 3D 시뮬레이터가 현실적인 단가 범위를 쓸 수 있도록"""
     결과 = {}
     비US = [c for c in 국가목록 if c not in US_식별자]
     for 국가 in 비US:
