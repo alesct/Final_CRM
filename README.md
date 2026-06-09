@@ -1,9 +1,9 @@
 ________________________
-![crm_1](crm/crm_slide_01.jpg)
-![crm_2](crm/crm_slide_02.jpg)
-![crm_3](crm/crm_slide_03.jpg)
-![crm_4](crm/crm_slide_04.jpg)
-![crm_5](crm/crm_slide_05.jpg)
-![crm_6](crm/crm_slide_06.jpg)
-![crm_7](crm/crm_slide_07.jpg)
+![crm_slide_01](crm/crm_slide_01.jpg)
+![crm_slide_02](crm/crm_slide_02.jpg)
+![crm_slide_03](crm/crm_slide_03.jpg)
+![crm_slide_04](crm/crm_slide_04.jpg)
+![crm_slide_05](crm/crm_slide_05.jpg)
+![crm_slide_06](crm/crm_slide_06.jpg)
+![crm_slide_07](crm/crm_slide_07.jpg)
 ________________________
