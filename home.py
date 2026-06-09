@@ -12,14 +12,14 @@ st.markdown("<style>[data-testid='stSidebar']{display:none!important;}[data-test
 
 logo_base64 = get_base64_image("logo.png")
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=0)
 def 메타조회():
     try: return requests.get(f"{서버주소}/api/metadata", timeout=5).json()
     except: return {"총레코드수":0,"모델R2":0.0,"피처수":6,"피처중요도":{"Order Quantity":0.15,"Unit Price":0.32,"Standard Cost":0.45,"Month_num":0.01,"Category_enc":0.02,"Country_enc":0.05}}
 
 메타 = 메타조회()
 레코드수 = 메타["총레코드수"] if 메타["총레코드수"] > 0 else 84350
-r2값 = 메타["모델R2"] if 메타["모델R2"] > 0 else 1.0
+r2값 = 메타["모델R2"]
 r2 = f"{r2값:.4f}"
 
 피처_원본 = 메타.get("피처중요도", {})
