@@ -35,6 +35,29 @@ CSV_경로 = os.path.join(BASE_DIR, "adventureworks_clean.csv")
 
 US_식별자 = ["United States"]
 
+계절_수요_가중 = {
+    "봄": 1.10,
+    "여름": 1.20,
+    "가을": 0.95,
+    "겨울": 0.80,
+}
+
+카테고리_마진_베이스 = {
+    "Bikes": 0.38,
+    "Accessories": 0.52,
+    "Clothing": 0.48,
+    "Components": 0.35,
+}
+
+국가_가격_인덱스 = {
+    "Australia": 1.05,
+    "Canada": 0.98,
+    "France": 1.02,
+    "Germany": 1.08,
+    "United Kingdom": 1.12,
+    "United States": 1.00,
+}
+
 def 계절_분류(월):
     for 계절, 월목록 in 계절_월_매핑.items():
         if 월 in 월목록:
@@ -92,7 +115,7 @@ def 시스템초기화():
         n = 2000
         나라들 = ["United States", "Australia", "Canada", "United Kingdom", "France", "Germany"]
         카테고리들 = ["Bikes", "Accessories", "Clothing", "Components"]
-        월목록 = 난수.randint(1, 13, n)
+        월목록_arr = 난수.randint(1, 13, n)
         카t목록 = 난수.choice(카테고리들, n)
         나라목록 = 난수.choice(나라들, n)
         단가_베이스 = np.where(카t목록 == "Bikes", 난수.uniform(400, 2000, n),
@@ -101,13 +124,13 @@ def 시스템초기화():
                      난수.uniform(20, 120, n))))
         원가_베이스 = 단가_베이스 * 난수.uniform(0.35, 0.75, n)
         수량 = 난수.randint(1, 6, n)
-        매출 = 단가_베이스 * 수량 * (1 + (월목록 / 12) * 0.15)
+        매출 = 단가_베이스 * 수량 * (1 + (월목록_arr / 12) * 0.15)
         원본_전체 = pd.DataFrame({
             "Order Quantity": 수량,
             "Unit Price": 단가_베이스,
             "Standard Cost": 원가_베이스,
             "Sales Amount": 매출,
-            "Month_num": 월목록,
+            "Month_num": 월목록_arr,
             "Country": 나라목록,
             "Category": 카t목록,
             "CustomerKey": 난수.randint(1, 500, n),
@@ -207,9 +230,7 @@ def 시즌전략조회():
         if len(us_계절) == 0:
             continue
 
-        카테고리별_매출 = (
-            us_계절.groupby("Category")["Sales Amount"].sum().sort_values(ascending=False)
-        )
+        카테고리별_매출 = us_계절.groupby("Category")["Sales Amount"].sum().sort_values(ascending=False)
         추천카테고리 = 카테고리별_매출.index[0]
         us_계절_총매출 = float(카테고리별_매출.iloc[0])
         us_월목록 = 계절_월_매핑[계절]
@@ -373,8 +394,16 @@ def 전략예측실행(요청데이터: 시뮬레이션입력):
     }])
 
     예측_마진율 = float(예측모델.predict(예측입력)[0])
-    예측_마진율 = max(-1.0, min(1.0, 예측_마진율))
-    예측매출 = 요청데이터.제품단가 * 요청데이터.주문수량 * (1 + 예측_마진율 * 0.15)
+    예측_마진율 = max(0.0, min(0.95, 예측_마진율))
+
+    계절 = 계절_분류(요청데이터.월코드)
+    계절_가중 = 계절_수요_가중.get(계절, 1.0)
+    국가_가중 = 국가_가격_인덱스.get(요청데이터.선택국가, 1.0)
+    카테고리_베이스마진 = 카테고리_마진_베이스.get(요청데이터.선택카테고리, 0.40)
+
+    혼합마진 = (예측_마진율 * 0.5) + (카테고리_베이스마진 * 0.5)
+    기본매출 = 요청데이터.제품단가 * 요청데이터.주문수량
+    예측매출 = 기본매출 * 계절_가중 * 국가_가중 * (1 + 혼합마진 * 0.2)
 
     조건df = 데이터프레임[
         (데이터프레임["Country"] == 요청데이터.선택국가) &
@@ -390,7 +419,7 @@ def 전략예측실행(요청데이터: 시뮬레이션입력):
     return {
         "예측매출액": max(0.0, round(예측매출, 2)),
         "시장점유율": round(시장점유율 * 100, 1),
-        "예측마진율": round(예측_마진율 * 100, 1),
+        "예측마진율": round(혼합마진 * 100, 1),
     }
 
 @애플리케이션.post("/api/predict/upsell")

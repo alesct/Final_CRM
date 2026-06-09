@@ -28,29 +28,70 @@ def csv_로드():
     if os.path.exists(현재경로): return pd.read_csv(현재경로)
     return None
 
+계절_수요_가중 = {"봄": 1.10, "여름": 1.20, "가을": 0.95, "겨울": 0.80}
+국가_가격_인덱스 = {"Australia": 1.05, "Canada": 0.98, "France": 1.02, "Germany": 1.08, "United Kingdom": 1.12}
+카테고리_마진_베이스 = {"Bikes": 0.38, "Accessories": 0.52, "Clothing": 0.48, "Components": 0.35}
+
 def 단일예측(수량, 단가, 원가, 월, 국가, 카테고리):
+    return 캐시_단일예측(수량, 단가, 원가, 월, 국가, 카테고리)
+
+@st.cache_data(ttl=300, show_spinner=False)
+def 캐시_단일예측(수량, 단가, 원가, 월, 국가, 카테고리):
     try:
         r = requests.post(f"{서버주소}/api/predict/strategy", timeout=5, json={
-            "주문수량":수량,"제품단가":float(단가),"제조원가":float(원가),
-            "월코드":월,"선택국가":국가,"선택카테고리":카테고리}).json()
+            "주문수량": 수량, "제품단가": float(단가), "제조원가": float(원가),
+            "월코드": 월, "선택국가": 국가, "선택카테고리": 카테고리}).json()
         return float(r.get("예측매출액", 0.0))
-    except: return float(수량 * 단가 * 1.1)
+    except:
+        마진 = 카테고리_마진_베이스.get(카테고리, 0.40)
+        국가_idx = 국가_가격_인덱스.get(국가, 1.0)
+        return float(수량 * 단가 * 국가_idx * (1 + 마진 * 0.2))
 
-def 국가별_전체예측(수량, 단가, 원가, 월, 국가목록_t, is_reseller, 카테고리):
-    결과 = []
-    for 국가 in 국가목록_t:
+def 그리드_3d_계산(국가, 카테고리, 원가, 월, p_min, p_max):
+    from concurrent.futures import ThreadPoolExecutor
+    _p_range = [int(p_min + (p_max - p_min) * i / 4) for i in range(5)]
+    _p_range = [max(1, p) for p in _p_range]
+    _q_range = list(range(1, 6))
+    combinations = [(q, p) for p in _p_range for q in _q_range]
+
+    def _call(args):
+        q, p = args
+        rev = 캐시_단일예측(q, p, 원가, 월, 국가, 카테고리)
+        return q, p, rev - (원가 * q)
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        results = list(ex.map(_call, combinations))
+
+    _Q, _P = np.meshgrid(_q_range, _p_range)
+    _Z_profit = np.zeros(_Q.shape)
+    rev_map = {(q, p): profit for q, p, profit in results}
+    for i, p in enumerate(_p_range):
+        for j, q in enumerate(_q_range):
+            _Z_profit[i, j] = rev_map[(q, p)]
+    return _q_range, _p_range, _Z_profit
+
+def 국가별_전체예측(수량, 단가, 원가, 월, 국가목록_t, is_reseller, 카테고리, 계절_키="봄"):
+    from concurrent.futures import ThreadPoolExecutor
+    계절_가중 = 계절_수요_가중.get(계절_키, 1.0)
+
+    def _pred(국가):
+        국가_idx = 국가_가격_인덱스.get(국가, 1.0)
         if is_reseller:
-            매출 = int(수량 * 단가 * 0.85)
+            매출 = round(수량 * 단가 * 0.85 * 국가_idx * 계절_가중, 2)
         else:
             try:
                 r = requests.post(f"{서버주소}/api/predict/strategy", timeout=5, json={
-                    "주문수량":수량,"제품단가":float(단가),"제조원가":float(원가),
-                    "월코드":월,"선택국가":국가,"선택카테고리":카테고리}).json()
+                    "주문수량": 수량, "제품단가": float(단가), "제조원가": float(원가),
+                    "월코드": 월, "선택국가": 국가, "선택카테고리": 카테고리}).json()
                 매출 = float(r.get("예측매출액", 0.0))
-            except: 매출 = float(수량 * 단가 * 1.1)
+            except:
+                마진 = 카테고리_마진_베이스.get(카테고리, 0.40)
+                매출 = round(수량 * 단가 * 국가_idx * (1 + 마진 * 0.2), 2)
         총원가 = 수량 * 원가
-        순수익 = 매출 - 총원가
-        결과.append({"국가":국가,"예측매출":round(매출,2),"총원가":총원가,"순수익":round(순수익,2)})
+        return {"국가": 국가, "예측매출": round(매출, 2), "총원가": 총원가, "순수익": round(매출 - 총원가, 2)}
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        결과 = list(ex.map(_pred, 국가목록_t))
     return pd.DataFrame(결과)
 
 메타 = 메타조회()
@@ -64,7 +105,6 @@ if "lang" not in st.session_state:
 lang_init("p1")
 
 st.markdown('<div class="main-content">', unsafe_allow_html=True)
-
 lang = lang_selector("p1")
 def t(text): return translate(text, lang)
 
@@ -80,12 +120,11 @@ if lang != "ko":
         "거래 유형", "일반 개인 고객", "도매 및 대리점", "판매 카테고리", "서브카테고리", "전체 (평균)",
         "수량", "단가 ($)", "원가 ($)", "국가", "전체 국가",
         "카테고리", "매출 산출 방식", "개", "제품 단가", "예측 총 매출", "총 제조 원가", "마진율", "순수익 추정",
-        "도매 매출", "총 원가", "순수익", "주문 수량", "금액 ($)", "예측 매출", "구매 수량", "예측 매출 ($)",
+        "도매 매출", "총 원가", "순수익", "주문 수량", "금액 ($)", "예측 매출",
         "전체 국가 비교 — 동일 조건으로 국가별 예측 매출 및 순수익", "국가별 예측 계산 중…",
         "예측 매출 ($)", "총 원가 ($)", "순수익 ($)",
         "3D 예측 곡면 — 수량 × 단가 × 예측 매출",
-        "X축: 수량, Y축: 국가별 실제 단가 범위, Z축: AI 예측 매출. 드래그로 회전하세요.",
-        "예측매출($)", "순수익($)", "단가($)", "국가별 실제 단가 범위 기준",
+        "수량", "단가($)", "예측매출($)",
     ], lang)
 
 top1, top2 = st.columns([6, 1])
@@ -247,7 +286,8 @@ with 탭2:
         선택국가 = st.selectbox(t("국가"), [t("전체 국가")]+국가목록, key="sim_country")
 
     is_reseller = 고객유형 == t("도매 및 대리점")
-    기본국가 = 국가목록[0] if 선택국가 == t("전체 국가") else 선택국가
+    전체국가_선택 = len(국가목록) > 0 and (선택국가 == t("전체 국가") or 선택국가 == "전체 국가")
+    기본국가 = 국가목록[0] if 전체국가_선택 else 선택국가
 
     이전키 = f"이전_{선택카테고리}_{선택서브카테고리}_{기본국가}"
     if st.session_state.get("p1_이전선택키") != 이전키:
@@ -268,19 +308,17 @@ with 탭2:
     with p2: 단가 = st.number_input(t("단가 ($)"), min_value=1, key="sim_price", value=st.session_state.get("sim_price",462))
     with p3: 원가 = st.number_input(t("원가 ($)"), min_value=1, key="sim_cost", value=st.session_state.get("sim_cost",250))
 
-    월 = 6
-
-    if is_reseller:
-        st.markdown(f"<p style='color:#8c8480;font-size:12px;margin:-10px 0 10px;'>{t('단가')} ${단가:,} → {t('도매 실제 청구단가')} ${int(단가*0.85):,} (15% {t('할인 적용')})</p>", unsafe_allow_html=True)
+    월 = 7
 
     서브표시 = 선택서브카테고리 if 선택서브카테고리 not in [t("전체 (평균)"), "전체 (평균)"] else 선택카테고리
+    국가_idx = 국가_가격_인덱스.get(기본국가, 1.0)
 
     if is_reseller:
-        예측매출 = int(수량 * 단가 * 0.85)
+        예측매출 = int(수량 * 단가 * 0.85 * 국가_idx)
         단가after = int(단가 * 0.85)
-        매출출처 = t(f"도매 단가 기반 (수량 {수량} × 단가 ${단가:,} × 도매할인 85% = 실제단가 ${단가after:,})")
+        매출출처 = t(f"도매 단가 기반 (수량 {수량} × 단가 ${단가:,} × 도매할인 85%)")
     else:
-        예측매출 = int(단일예측(수량,단가,원가,월,기본국가,선택카테고리))
+        예측매출 = int(단일예측(수량, 단가, 원가, 월, 기본국가, 선택카테고리))
         매출출처 = f"{t('Random Forest AI 모델 예측')} ({서브표시})"
 
     총원가 = int(수량*원가)
@@ -288,7 +326,7 @@ with 탭2:
     마진율 = int(round(순수익/예측매출*100)) if 예측매출>0 else 0
     profit_class = "pos" if 순수익>=0 else "neg"
 
-    c1,c2 = st.columns(2)
+    c1, c2 = st.columns(2)
     with c1:
         st.markdown(f"""<div class="fin-card">
             <div class="fin-row"><span class="fin-label">{t("거래 유형")}</span><span class="fin-value">{고객유형}</span></div>
@@ -314,87 +352,83 @@ with 탭2:
 
     with c2:
         if is_reseller:
-            qty_range = list(range(5,max(수량+50,60),max(1,수량//8)))
-            rev=[int(q*단가*0.85) for q in qty_range]
-            cost_=[int(q*원가) for q in qty_range]
-            profit_=[r-c for r,c in zip(rev,cost_)]
-            fig=go.Figure()
-            fig.add_trace(go.Scatter(x=qty_range,y=rev,name=t("도매 매출"),mode="lines",line=dict(color="#7b93a8",width=2),fill="tozeroy",fillcolor="rgba(123,147,168,0.07)"))
-            fig.add_trace(go.Scatter(x=qty_range,y=cost_,name=t("총 원가"),mode="lines",line=dict(color="#c4956a",width=2,dash="dot")))
-            fig.add_trace(go.Scatter(x=qty_range,y=profit_,name=t("순수익"),mode="lines+markers",line=dict(color="#8aab8e",width=2),marker=dict(size=5)))
-            pastel_layout(fig,height=320)
-            fig.update_xaxes(title_text=t("주문 수량"))
-            fig.update_yaxes(title_text=t("금액 ($)"))
-            fig.add_hline(y=0,line_dash="dot",line_color="#ddd8d0")
+            qty_range = list(range(5, max(수량+50, 60), max(1, 수량//8)))
+            rev = [round(q * 단가 * 0.85 * 국가_idx, 2) for q in qty_range]
+            cost_ = [q * 원가 for q in qty_range]
+            profit_ = [r - c for r, c in zip(rev, cost_)]
+            fig_r = go.Figure()
+            fig_r.add_trace(go.Scatter(x=qty_range, y=rev, name=t("도매 매출"), mode="lines", line=dict(color="#7b93a8",width=2), fill="tozeroy", fillcolor="rgba(123,147,168,0.07)"))
+            fig_r.add_trace(go.Scatter(x=qty_range, y=cost_, name=t("총 원가"), mode="lines", line=dict(color="#c4956a",width=2,dash="dot")))
+            fig_r.add_trace(go.Scatter(x=qty_range, y=profit_, name=t("순수익"), mode="lines+markers", line=dict(color="#8aab8e",width=2), marker=dict(size=5)))
+            pastel_layout(fig_r, height=320)
+            fig_r.update_xaxes(title_text=t("주문 수량"))
+            fig_r.update_yaxes(title_text=t("금액 ($)"))
+            fig_r.add_hline(y=0, line_dash="dot", line_color="#ddd8d0")
+            st.plotly_chart(fig_r, use_container_width=True)
         else:
-            st.markdown(f"<p style='color:#8c8480;font-size:12px;margin-bottom:6px;'>{t('3D 예측 곡면 — 수량 × 단가 × 예측 매출')}</p>", unsafe_allow_html=True)
-            st.caption(t("X축: 수량, Y축: 국가별 실제 단가 범위, Z축: AI 예측 매출. 드래그로 회전하세요."))
-
             국가_cat = 국가단가_데이터.get(기본국가, {}).get(선택카테고리, {})
             if 국가_cat and 국가_cat.get("min", 0) > 0:
                 p_min = max(1, int(국가_cat["min"]))
                 p_max = int(국가_cat["max"])
-                p_mean = int(국가_cat["mean"])
-                _p_range = [int(p_min + (p_max - p_min) * i / 6) for i in range(7)]
             else:
-                _p_range = [int(단가*r) for r in [0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 1.8]]
+                base = 서브카테고리_단가표.get(서브표시, (단가, 원가))[0] if 서브표시 in 서브카테고리_단가표 else 단가
+                p_min = max(1, int(base * 0.5))
+                p_max = int(base * 1.8)
 
-            _q_range = list(range(1, 7))
-            _Q, _P = np.meshgrid(_q_range, _p_range)
-            _Z = np.array([
-                [단일예측(int(_Q[i,j]), _P[i,j], 원가, 월, 기본국가, 선택카테고리)
-                 for j in range(_Q.shape[1])]
-                for i in range(_Q.shape[0])
-            ])
-            cs = [[0,"#e8e4df"],[0.5,"#a8b8c8"],[1,"#7b93a8"]]
-            fig = go.Figure(data=[go.Surface(
-                z=_Z, x=_q_range, y=_p_range,
+            _q_range, _p_range, _Z_profit = 그리드_3d_계산(기본국가, 선택카테고리, 원가, 월, p_min, p_max)
+
+            z_surface = _Z_profit
+            z_title = t("순수익($)")
+
+            cs = [[0,"#e8c9a8"],[0.4,"#a8b8c8"],[1,"#7b93a8"]]
+            fig_3d = go.Figure(data=[go.Surface(
+                z=z_surface, x=_q_range, y=_p_range,
                 colorscale=cs, showscale=True,
-                colorbar=dict(title=t("예측매출($)"),tickformat="$,.0f",
-                    tickfont=dict(size=10,color="#8c8480"),title_font=dict(size=10,color="#8c8480"))
+                colorbar=dict(title=z_title, tickformat="$,.0f",
+                    tickfont=dict(size=10, color="#8c8480"), title_font=dict(size=10, color="#8c8480"))
             )])
-            fig.update_layout(
+            fig_3d.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
                 scene=dict(
                     bgcolor="#f7f5f2",
-                    xaxis=dict(title=t("수량"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480"),
-                    yaxis=dict(title=t("단가($)"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480",tickformat="$,.0f"),
-                    zaxis=dict(title=t("예측매출($)"),gridcolor="#ddd8d0",backgroundcolor="#f7f5f2",color="#8c8480",tickformat="$,.0f"),
-                    camera=dict(eye=dict(x=1.8,y=-1.8,z=1.2))
+                    xaxis=dict(title=t("수량"), gridcolor="#ddd8d0", backgroundcolor="#f7f5f2", color="#8c8480"),
+                    yaxis=dict(title=t("단가($)"), gridcolor="#ddd8d0", backgroundcolor="#f7f5f2", color="#8c8480", tickformat="$,.0f"),
+                    zaxis=dict(title=z_title, gridcolor="#ddd8d0", backgroundcolor="#f7f5f2", color="#8c8480", tickformat="$,.0f"),
+                    camera=dict(eye=dict(x=1.8, y=-1.8, z=1.2))
                 ),
-                height=340, margin=dict(l=0,r=0,t=20,b=0)
+                height=380, margin=dict(l=0, r=0, t=10, b=0)
             )
-        st.plotly_chart(fig,use_container_width=True)
+            st.plotly_chart(fig_3d, use_container_width=True)
+            st.caption(f"{기본국가} · {선택카테고리} — {t('단가 범위')} ${_p_range[0]:,}–${_p_range[-1]:,}")
 
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("전체 국가 비교 — 동일 조건으로 국가별 예측 매출 및 순수익")}</span></div>', unsafe_allow_html=True)
-    분析국가목록 = 국가목록 if 선택국가==t("전체 국가") else [선택국가]
+    분析국가목록 = 국가목록 if 전체국가_선택 else [선택국가]
     with st.spinner(t("국가별 예측 계산 중…")):
-        pred_all = 국가별_전체예측(수량,단가,원가,월,tuple(분析국가목록),is_reseller,선택카테고리)
+        pred_all = 국가별_전체예측(수량, 단가, 원가, 월, tuple(분析국가목록), is_reseller, 선택카테고리)
 
-    ga,gb = st.columns(2)
+    ga, gb = st.columns(2)
     with ga:
-        fig3=go.Figure()
-        fig3.add_trace(go.Bar(name=t("예측 매출"),x=pred_all["국가"],y=pred_all["예측매출"],marker_color="#7b93a8",marker_line_width=0))
-        fig3.add_trace(go.Bar(name=t("순수익"),x=pred_all["국가"],y=pred_all["순수익"],marker_color="#8aab8e",marker_line_width=0))
-        pastel_layout(fig3,height=320)
+        fig3 = go.Figure()
+        fig3.add_trace(go.Bar(name=t("예측 매출"), x=pred_all["국가"], y=pred_all["예측매출"], marker_color="#7b93a8", marker_line_width=0))
+        fig3.add_trace(go.Bar(name=t("순수익"), x=pred_all["국가"], y=pred_all["순수익"], marker_color="#8aab8e", marker_line_width=0))
+        pastel_layout(fig3, height=320)
         fig3.update_layout(barmode="group")
         fig3.update_yaxes(title_text=t("금액 ($)"))
-        fig3.add_hline(y=0,line_dash="dot",line_color="#ddd8d0")
-        st.plotly_chart(fig3,use_container_width=True)
+        fig3.add_hline(y=0, line_dash="dot", line_color="#ddd8d0")
+        st.plotly_chart(fig3, use_container_width=True)
     with gb:
-        display_df=pred_all.copy()
-        display_df.columns=["국가",t("예측 매출 ($)"),t("총 원가 ($)"),t("순수익 ($)")]
-        display_df[t("예측 매출 ($)")]=display_df[t("예측 매출 ($)")].apply(lambda x:f"${x:,.0f}")
-        display_df[t("총 원가 ($)")]=display_df[t("총 원가 ($)")].apply(lambda x:f"${x:,.0f}")
-        display_df[t("순수익 ($)")]=display_df[t("순수익 ($)")].apply(lambda x:f"${x:,.0f}")
-        st.dataframe(display_df,use_container_width=True,hide_index=True)
-        for _,행 in pred_all.iterrows():
-            마진=int(행["순수익"]/행["예측매출"]*100) if 행["예측매출"]>0 else 0
-            box="ok" if 행["순수익"]>0 else "bad"
+        display_df = pred_all.copy()
+        display_df.columns = ["국가", t("예측 매출 ($)"), t("총 원가 ($)"), t("순수익 ($)")]
+        display_df[t("예측 매출 ($)")] = display_df[t("예측 매출 ($)")].apply(lambda x: f"${x:,.0f}")
+        display_df[t("총 원가 ($)")] = display_df[t("총 원가 ($)")].apply(lambda x: f"${x:,.0f}")
+        display_df[t("순수익 ($)")] = display_df[t("순수익 ($)")].apply(lambda x: f"${x:,.0f}")
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        for _, 행 in pred_all.iterrows():
+            마진 = int(행["순수익"]/행["예측매출"]*100) if 행["예측매출"]>0 else 0
+            box = "ok" if 행["순수익"]>0 else "bad"
             st.markdown(f'<div class="alert-box {box}" style="margin-bottom:6px;padding:10px 14px;"><b>{행["국가"]}</b> — {t("마진율")} {마진}%, {t("순수익")} ${행["순수익"]:,.0f}</div>', unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
-
 logo_tag = f'<img src="data:image/png;base64,{logo_base64}" class="footer-logo">' if logo_base64 else ""
 st.markdown(f"""<style>.clickable-footer{{position:fixed;right:20px;bottom:15px;background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:8px 16px;border-radius:4px;font-size:12px;font-weight:500;letter-spacing:0.05em;z-index:999;display:flex;align-items:center;gap:8px;cursor:pointer;text-decoration:none;transition:border-color 0.2s;}}.clickable-footer:hover{{border-color:var(--accent);color:var(--accent);}}</style>
 <a href="/" class="clickable-footer">{logo_tag}<span>2555041</span></a>""", unsafe_allow_html=True)

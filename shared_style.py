@@ -207,7 +207,7 @@ def pastel_layout(fig, height=380, margin=None):
     )
     return fig
 
-서버주소 = "https://finalcrm-production.up.railway.app"
+서버주소 = os.getenv("API_URL", "http://localhost:8000")
 카테고리_색상 = {"Bikes":"#7b93a8","Accessories":"#8aab8e","Clothing":"#c4956a","Components":"#a98baa"}
 계절_색상 = {"봄":"#8aab8e","여름":"#7b93a8","가을":"#c4956a","겨울":"#a98baa"}
 피처_한글명 = {
