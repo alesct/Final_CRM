@@ -22,7 +22,7 @@ CSV_경로 = os.path.join(BASE_DIR, "adventureworks_clean.csv")
 카테고리목록 = []
 피처중요도 = {}
 모델_r2 = 0.0
-피처_컬럼 = ["Order Quantity", "Unit Price", "Standard Cost", "Month_num", "Category_enc", "Country_enc"]
+피처_컬럼 = ["Order Quantity", "Month_num", "Category_enc", "Country_enc"]
 
 계절_월_매핑 = {
     "봄": [3, 4, 5],
@@ -119,8 +119,7 @@ def 시스템초기화():
     카테고리목록 = sorted(list(카테고리인코더.classes_))
 
     X = 데이터프레임[피처_컬럼]
-    데이터프레임["_unit_sales"] = (데이터프레임["Sales Amount"] /데이터프레임["Order Quantity"].replace(0, np.nan)).fillna(0)
-    y_reg = np.log1p(데이터프레임["_unit_sales"])  # log 변환으로 스케일 안정화
+    y_reg = np.log1p(데이터프레임["Sales Amount"])
     X_학습, X_검증, y_학습, y_검증 = train_test_split(X, y_reg, test_size=0.2, random_state=42)
     예측모델 = RandomForestRegressor(n_estimators=200, min_samples_leaf=5, random_state=42)
     예측모델.fit(X_학습, y_학습)
@@ -245,6 +244,9 @@ def 시즌전략조회():
 def 크로스셀분석():
     df = 데이터프레임.copy()
 
+    if "client_type" in df.columns:
+        df = df[df["client_type"] == "B2C"].copy()
+
     if "CustomerKey" in df.columns and "OrderDateKey" in df.columns:
         주문그룹 = df.groupby(["CustomerKey", "OrderDateKey"])["Category"].apply(list).reset_index()
         주문그룹.columns = ["CustomerKey", "OrderDateKey", "카테고리목록"]
@@ -356,15 +358,21 @@ def 전략예측실행(요청데이터: 시뮬레이션입력):
 
     예측입력 = pd.DataFrame([{
         "Order Quantity": 요청데이터.주문수량,
-        "Unit Price": 요청데이터.제품단가,
-        "Standard Cost": 요청데이터.제조원가,
         "Month_num": 요청데이터.월코드,
         "Category_enc": 카테고리인덱스,
         "Country_enc": 국가인덱스,
     }])
 
-    예측_log_unit = float(예측모델.predict(예측입력)[0])
-    예측매출 = np.expm1(예측_log_unit) * 요청데이터.주문수량
+    예측_log = float(예측모델.predict(예측입력)[0])
+    예측매출_기본 = np.expm1(예측_log)
+    # 사용자가 입력한 단가로 스케일 조정 (모델 예측 단가 대비 비율 반영)
+    조건df_price = 데이터프레임[
+        (데이터프레임["Category_enc"] == 카테고리인덱스) &
+        (데이터프레임["Country_enc"] == 국가인덱스)
+    ]
+    평균단가 = float(조건df_price["Unit Price"].mean()) if len(조건df_price) > 0 else 요청데이터.제품단가
+    가격비율 = 요청데이터.제품단가 / 평균단가 if 평균단가 > 0 else 1.0
+    예측매출 = 예측매출_기본 * 가격비율
 
     조건df = 데이터프레임[
         (데이터프레임["Country"] == 요청데이터.선택국가) &

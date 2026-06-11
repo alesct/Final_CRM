@@ -74,7 +74,7 @@ if lang != "ko":
         "미국 실적을 기준으로 시즌별 최고 카테고리를 타국가에 이식하기 위한 전략과, 자전거 구매와 연계한 크로스셀링 분석을 제공합니다.",
         "분석 시즌", "국가 필터", "전체 국가",
         "봄", "여름", "가을", "겨울",
-        "시즌별 매출 예측", "크로스셀링 분석", "업셀 구매 예측",
+        "시즌별 매출 예측", "크로스셀링 분석",
         "시즌별 AI 매출 예측 — 판매 시뮬레이션",
         "선택한 시즌·카테고리·수량·단가로 각 국가별 예상 매출과 순수익을 실시간으로 예측합니다.",
         "거래 유형", "일반 개인 고객 (B2C)", "도매 및 대리점 (B2B)",
@@ -90,10 +90,6 @@ if lang != "ko":
         "Bikes 구매 고객의 동반 구매 카테고리", "카테고리별 시즌 매출 패턴",
         "매출 ($)", "시즌별 데이터를 계산할 수 없습니다.",
         "크로스셀 전략 추천", "전체 국가", "주요 서브카테고리", "시즌 인사이트",
-        "업셀 구매 예측 — Bikes 고객의 추가 구매 가능성",
-        "자전거를 구매한 고객이 Accessories / Clothing / Components도 구매할 가능성을 AI가 예측합니다.",
-        "주문 수량", "제품 단가 ($)", "구매 월", "국가",
-        "카테고리별 구매 확률", "시즌 맞춤 전략 추천", "구매 가능성 높음", "구매 가능성 낮음",
     ], lang)
 
 top1, top2 = st.columns([6, 1])
@@ -118,7 +114,7 @@ with st.columns(2)[1]:
 대표월 = 계절_대표월.get(계절_키목록[0])
 분析국가 = 국가목록 if 선택국가_내부 == "전체 국가" else [선택국가_내부]
 
-탭1, 탭2 = st.tabs([t("시즌별 매출 예측"), t("크로스셀링 분석 & 업셀 예측")])
+탭1, 탭2 = st.tabs([t("시즌별 매출 예측"), t("크로스셀링 분석")])
 
 with 탭1:
     st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("시즌별 AI 매출 예측 — 판매 시뮬레이션")}</span></div>', unsafe_allow_html=True)
@@ -373,97 +369,6 @@ with 탭2:
                             <div class="strat-country">{t("시즌 인사이트")} — {선택계절_표시}</div>
                             <div class="strat-text">{t(insight_ko)}</div>
                         </div>""", unsafe_allow_html=True)
-
-    st.markdown("<hr style='border-color:#ddd8d0;margin:32px 0 20px 0;'>", unsafe_allow_html=True)
-    # ── 업셀 구매 예측 ───────────────────────────────────────────────
-    st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#8aab8e"></div><span>{t("업셀 구매 예측 — Bikes 고객의 추가 구매 가능성")}</span></div>', unsafe_allow_html=True)
-    st.markdown(f"<p style='color:#8c8480;font-size:14px;margin-bottom:24px;'>{t('자전거를 구매한 고객이 Accessories / Clothing / Components도 구매할 가능성을 AI가 예측합니다.')}</p>", unsafe_allow_html=True)
-
-    u1, u2, u3, u4 = st.columns(4)
-    with u1:
-        up_수량 = st.slider(t("주문 수량"), 1, 10, 2, key="up_qty")
-    with u2:
-        up_단가 = st.number_input(t("제품 단가 ($)"), min_value=1, value=700, key="up_price")
-    with u3:
-        up_월 = 대표월
-        st.markdown(f"<p style='color:#8c8480;font-size:13px;padding-top:8px;'>{t('구매 월')}: <b>{up_월}월</b> ({선택계절_표시})</p>", unsafe_allow_html=True)
-    with u4:
-        up_국가목록 = [t("전체 국가")] + 국가목록
-        up_국가_선택 = st.selectbox(t("국가"), up_국가목록, key="up_country")
-        up_국가 = 분析국가[0] if up_국가_선택 == t("전체 국가") else up_국가_선택
-
-    카테고리_색상맵 = {"Accessories": "#8aab8e", "Clothing": "#c4956a", "Components": "#a98baa"}
-
-    try:
-        up_result = requests.post(f"{서버주소}/api/predict/upsell", timeout=5, json={
-            "주문수량": up_수량,
-            "제품단가": float(up_단가),
-            "월코드": up_월,
-            "선택국가": up_국가,
-        }).json()
-        카테고리별예측 = up_result.get("카테고리별예측", {})
-        최고추천 = up_result.get("최고추천카테고리", "Accessories")
-        api_ok = True
-    except:
-        카테고리별예측 = {
-            "Accessories": {"확률": 65.0, "예측": "구매 가능성 높음", "정확도": 0.0, "추천": "서버 연결 필요"},
-            "Clothing": {"확률": 40.0, "예측": "구매 가능성 낮음", "정확도": 0.0, "추천": "서버 연결 필요"},
-            "Components": {"확률": 35.0, "예측": "구매 가능성 낮음", "정확도": 0.0, "추천": "서버 연결 필요"},
-        }
-        최고추천 = "Accessories"
-        api_ok = False
-
-    st.markdown('<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin:16px 0;">', unsafe_allow_html=True)
-    for 카t, 데이터 in 카테고리별예측.items():
-        확률 = 데이터["확률"]
-        색 = 카테고리_색상맵.get(카t, "#7b93a8")
-        강조 = f"border:2px solid {색}" if 카t == 최고추천 else "border:1px solid var(--border)"
-        st.markdown(f"""<div class="kpi-card" style="{강조};border-top:3px solid {색};">
-            <div class="kpi-val" style="color:{색};">{확률:.0f}%</div>
-            <div class="kpi-label">{카t}</div>
-            <div style="font-size:12px;color:#8c8480;margin-top:4px;">{t(데이터['예측'])}</div>
-        </div>""", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    ca, cb = st.columns(2)
-    with ca:
-        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#7b93a8"></div><span>{t("카테고리별 구매 확률")}</span></div>', unsafe_allow_html=True)
-        카t목록 = list(카테고리별예측.keys())
-        확률목록 = [카테고리별예측[k]["확률"] for k in 카t목록]
-        색목록 = [카테고리_색상맵.get(k, "#7b93a8") for k in 카t목록]
-        fig_up = go.Figure(go.Bar(
-            x=확률목록, y=카t목록, orientation="h",
-            marker=dict(color=색목록, line=dict(width=0)),
-            text=[f"{v:.1f}%" for v in 확률목록],
-            textposition="outside",
-            textfont=dict(family="DM Sans", size=14, color="#8c8480"),
-        ))
-        pastel_layout(fig_up, height=260, margin=dict(l=10, r=80, t=10, b=10))
-        fig_up.update_xaxes(range=[0, 110], showticklabels=False, showgrid=False)
-        fig_up.add_vline(x=50, line_dash="dot", line_color="#ddd8d0")
-        fig_up.update_yaxes(tickfont=dict(family="DM Sans", size=15, color="#2e2a26"))
-        st.plotly_chart(fig_up, use_container_width=True)
-        st.markdown(f"<p style='color:#8c8480;font-size:12px;margin-top:-8px;'>{t('점선(50%) 기준 오른쪽 = 구매 가능성 높음')}</p>", unsafe_allow_html=True)
-
-    with cb:
-        st.markdown(f'<div class="section-header"><div class="section-dot" style="background:#a98baa"></div><span>{t("시즌 맞춤 전략 추천")}</span></div>', unsafe_allow_html=True)
-        for 카t, 데이터 in 카테고리별예측.items():
-            색 = 카테고리_색상맵.get(카t, "#7b93a8")
-            확률 = 데이터["확률"]
-            box_bg = "#f0f6f1" if 확률 >= 50 else "#fdf1f1"
-            box_bd = "#c2d9c5" if 확률 >= 50 else "#e0bcbc"
-            box_c = "#4e7a54" if 확률 >= 50 else "#b56b6b"
-            정확도표시 = f" ({t('모델 정확도')} {데이터['정확도']*100:.1f}%)" if 데이터['정확도'] > 0 else ""
-            st.markdown(f"""<div class="strat-card" style="border-left-color:{색};margin-bottom:10px;">
-                <div class="strat-country">Bikes → {카t}{정확도표시}</div>
-                <div class="strat-text">{t(데이터['추천'])}</div>
-                <div style="margin-top:8px;background:{box_bg};border:1px solid {box_bd};border-radius:4px;padding:6px 10px;font-size:13px;color:{box_c};">
-                    {확률:.1f}% {t(데이터['예측'])}
-                </div>
-            </div>""", unsafe_allow_html=True)
-
-    if not api_ok:
-        st.markdown('<div class="alert-box bad" style="margin-top:16px;">서버 미연결 — uvicorn 실행 후 새로고침하세요.</div>', unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 render_footer()

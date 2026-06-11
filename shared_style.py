@@ -207,12 +207,10 @@ def pastel_layout(fig, height=380, margin=None):
     )
     return fig
 
-import os
-서버주소 = os.getenv("API_URL", "http://localhost:8000")
+서버주소 = "https://finalcrm-production.up.railway.app"
 카테고리_색상 = {"Bikes":"#7b93a8","Accessories":"#8aab8e","Clothing":"#c4956a","Components":"#a98baa"}
 계절_색상 = {"봄":"#8aab8e","여름":"#7b93a8","가을":"#c4956a","겨울":"#a98baa"}
 피처_한글명 = {
-    "Order Quantity":"주문 수량","Unit Price":"제품 단가",
-    "Standard Cost":"제조 원가","Month_num":"월 코드",
+    "Order Quantity":"주문 수량","Month_num":"월 코드",
     "Category_enc":"카테고리","Country_enc":"국가",
 }
