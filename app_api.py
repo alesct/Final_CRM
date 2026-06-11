@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, MultiLabelBinarizer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
 import os
@@ -20,8 +20,6 @@ CSV_경로 = os.path.join(BASE_DIR, "adventureworks_clean.csv")
 업셀_정확도 = {}
 국가목록 = []
 카테고리목록 = []
-국가인코더 = None
-카테고리인코더 = None
 피처중요도 = {}
 모델_r2 = 0.0
 피처_컬럼 = ["Order Quantity", "Unit Price", "Standard Cost", "Month_num", "Category_enc", "Country_enc"]
@@ -34,29 +32,6 @@ CSV_경로 = os.path.join(BASE_DIR, "adventureworks_clean.csv")
 }
 
 US_식별자 = ["United States"]
-
-계절_수요_가중 = {
-    "봄": 1.10,
-    "여름": 1.20,
-    "가을": 0.95,
-    "겨울": 0.80,
-}
-
-카테고리_마진_베이스 = {
-    "Bikes": 0.38,
-    "Accessories": 0.52,
-    "Clothing": 0.48,
-    "Components": 0.35,
-}
-
-국가_가격_인덱스 = {
-    "Australia": 1.05,
-    "Canada": 0.98,
-    "France": 1.02,
-    "Germany": 1.08,
-    "United Kingdom": 1.12,
-    "United States": 1.00,
-}
 
 def 계절_분류(월):
     for 계절, 월목록 in 계절_월_매핑.items():
@@ -81,60 +56,58 @@ class 업셀입력(BaseModel):
 @애플리케이션.on_event("startup")
 def 시스템초기화():
     global 데이터프레임, 원본_전체, 예측모델, 업셀_모델, 업셀_정확도, 국가목록, 카테고리목록
-    global 피처중요도, 모델_r2, 국가인코더, 카테고리인코더
+    global 피처중요도, 모델_r2
 
     try:
         원본_전체 = pd.read_csv(CSV_경로)
+        print(f"CSV cargado: {len(원본_전체)} filas desde {CSV_경로}")
         원본_전체.columns = 원본_전체.columns.str.strip()
-        print(f"CSV loaded: {len(원본_전체)} rows")
 
+        # Month_num 품질 검사 — 유효값(1-12)이 전체의 50% 미만이면 수리 필요
         월_유효비율 = ((원본_전체["Month_num"] >= 1) & (원본_전체["Month_num"] <= 12)).mean()
-        print(f"Month_num valid ratio: {월_유효비율:.2%}")
+        print(f"Month_num 유효비율: {월_유효비율:.2%}")
 
         if 월_유효비율 < 0.5:
+            print("Month_num 불량 — Excel에서 재수집 시도")
             try:
                 url = "https://github.com/microsoft/powerbi-desktop-samples/raw/main/AdventureWorks%20Sales%20Sample/AdventureWorks%20Sales.xlsx"
                 날짜_데이터 = pd.read_excel(url, sheet_name="Date_data")
                 월_순서 = ["January","February","March","April","May","June",
                           "July","August","September","October","November","December"]
+                # DateKey → Month_num 딕셔너리 (row index 아닌 key 기반 매핑)
                 날짜_데이터["Month_num_fixed"] = 날짜_데이터["Month"].apply(
                     lambda x: next((i+1 for i,m in enumerate(월_순서) if m.lower() in str(x).lower()), 0)
                 )
                 datekey_to_month = 날짜_데이터.set_index("DateKey")["Month_num_fixed"].to_dict()
                 if "OrderDateKey" in 원본_전체.columns:
                     원본_전체["Month_num"] = 원본_전체["OrderDateKey"].map(datekey_to_month).fillna(0).astype(int)
-                    print(f"Month repair done: {((원본_전체['Month_num'] >= 1) & (원본_전체['Month_num'] <= 12)).mean():.2%}")
+                    유효후 = ((원본_전체["Month_num"] >= 1) & (원본_전체["Month_num"] <= 12)).mean()
+                    print(f"Excel 수리 완료 — 유효비율: {유효후:.2%}")
+                else:
+                    print("OrderDateKey 컬럼 없음 — 월 수리 불가")
             except Exception as ex:
-                print(f"Month repair failed: {ex}")
+                print(f"Excel 로드 실패: {ex}")
+        else:
+            print(f"Month_num 정상 — 수리 불필요 (유효비율 {월_유효비율:.2%})")
 
         데이터프레임 = 원본_전체.copy()
-
     except Exception as e:
-        print(f"CSV load error: {e} — using fallback")
+        print(f"ERROR cargando CSV: {e} — usando datos de fallback")
         난수 = np.random.RandomState(42)
-        n = 2000
+        n = 1500
         나라들 = ["United States", "Australia", "Canada", "United Kingdom", "France", "Germany"]
         카테고리들 = ["Bikes", "Accessories", "Clothing", "Components"]
-        월목록_arr = 난수.randint(1, 13, n)
-        카t목록 = 난수.choice(카테고리들, n)
-        나라목록 = 난수.choice(나라들, n)
-        단가_베이스 = np.where(카t목록 == "Bikes", 난수.uniform(400, 2000, n),
-                     np.where(카t목록 == "Components", 난수.uniform(50, 400, n),
-                     np.where(카t목록 == "Accessories", 난수.uniform(10, 150, n),
-                     난수.uniform(20, 120, n))))
-        원가_베이스 = 단가_베이스 * 난수.uniform(0.35, 0.75, n)
-        수량 = 난수.randint(1, 6, n)
-        매출 = 단가_베이스 * 수량 * (1 + (월목록_arr / 12) * 0.15)
         원본_전체 = pd.DataFrame({
-            "Order Quantity": 수량,
-            "Unit Price": 단가_베이스,
-            "Standard Cost": 원가_베이스,
-            "Sales Amount": 매출,
-            "Month_num": 월목록_arr,
-            "Country": 나라목록,
-            "Category": 카t목록,
-            "CustomerKey": 난수.randint(1, 500, n),
+            "Order Quantity": 난수.randint(1, 6, n),
+            "Unit Price": 난수.uniform(10, 2200, n),
+            "Standard Cost": 난수.uniform(5, 1100, n),
+            "Sales Amount": 난수.uniform(20, 9000, n),
+            "Month_num": 난수.randint(1, 13, n),
+            "Country": 난수.choice(나라들, n),
+            "Category": 난수.choice(카테고리들, n),
+            "CustomerKey": 난수.randint(1, 300, n),
             "OrderDateKey": 난수.randint(20130101, 20160101, n),
+            "client_type": "B2C",
         })
         데이터프레임 = 원본_전체.copy()
 
@@ -142,46 +115,32 @@ def 시스템초기화():
     카테고리인코더 = LabelEncoder()
     데이터프레임["Country_enc"] = 국가인코더.fit_transform(데이터프레임["Country"].astype(str))
     데이터프레임["Category_enc"] = 카테고리인코더.fit_transform(데이터프레임["Category"].astype(str))
-    국가목록 = list(국가인코더.classes_)
-    카테고리목록 = list(카테고리인코더.classes_)
-    print(f"Countries: {국가목록}")
-    print(f"Categories: {카테고리목록}")
+    국가목록 = sorted(list(국가인코더.classes_))
+    카테고리목록 = sorted(list(카테고리인코더.classes_))
 
-    X = 데이터프레임[피처_컬럼].copy()
-
-    total_revenue = 데이터프레임["Sales Amount"].clip(lower=1)
-    total_cost = 데이터프레임["Standard Cost"] * 데이터프레임["Order Quantity"]
-    gross_margin = (total_revenue - total_cost) / total_revenue
-    gross_margin = gross_margin.clip(-1, 1)
-
-    y_reg = gross_margin
-
+    X = 데이터프레임[피처_컬럼]
+    데이터프레임["_unit_sales"] = (데이터프레임["Sales Amount"] /데이터프레임["Order Quantity"].replace(0, np.nan)).fillna(0)
+    y_reg = np.log1p(데이터프레임["_unit_sales"])  # log 변환으로 스케일 안정화
     X_학습, X_검증, y_학습, y_검증 = train_test_split(X, y_reg, test_size=0.2, random_state=42)
-    예측모델 = RandomForestRegressor(
-        n_estimators=300,
-        max_depth=12,
-        min_samples_leaf=3,
-        max_features="sqrt",
-        random_state=42
-    )
+    예측모델 = RandomForestRegressor(n_estimators=200, min_samples_leaf=5, random_state=42)
     예측모델.fit(X_학습, y_학습)
     모델_r2 = round(float(r2_score(y_검증, 예측모델.predict(X_검증))), 4)
     피처중요도 = {
         피처: round(float(중요도), 4)
         for 피처, 중요도 in zip(피처_컬럼, 예측모델.feature_importances_)
     }
-    print(f"Model R²: {모델_r2}")
-    print(f"Feature importances: {피처중요도}")
 
     업셀_피처 = ["Order Quantity", "Unit Price", "Month_num", "Country_enc"]
     업셀_타겟_카테고리 = ["Accessories", "Clothing", "Components"]
 
-    if "CustomerKey" in 데이터프레임.columns:
-        bikes_df = 데이터프레임[데이터프레임["Category"] == "Bikes"].copy()
+    if "client_type" in 데이터프레임.columns:
+        b2c_df = 데이터프레임[데이터프레임["client_type"] == "B2C"].copy()
+        bikes_df = b2c_df[b2c_df["Category"] == "Bikes"].copy()
+        bikes_고객 = set(bikes_df["CustomerKey"].dropna().apply(lambda x: int(float(x))).unique())
 
         for 타겟 in 업셀_타겟_카테고리:
             타겟_고객 = set(
-                데이터프레임[데이터프레임["Category"] == 타겟]["CustomerKey"]
+                b2c_df[b2c_df["Category"] == 타겟]["CustomerKey"]
                 .dropna().apply(lambda x: int(float(x))).unique()
             )
             bikes_df[f"bought_{타겟}"] = bikes_df["CustomerKey"].apply(
@@ -191,10 +150,12 @@ def 시스템초기화():
         for 타겟 in 업셀_타겟_카테고리:
             y_col = f"bought_{타겟}"
             학습용 = bikes_df[업셀_피처 + [y_col]].dropna()
-            if len(학습용) < 50 or 학습용[y_col].nunique() < 2:
+            if len(학습용) < 50:
                 continue
             X_u = 학습용[업셀_피처]
             y_u = 학습용[y_col]
+            if y_u.nunique() < 2:
+                continue
             X_u_학습, X_u_검증, y_u_학습, y_u_검증 = train_test_split(
                 X_u, y_u, test_size=0.2, random_state=42
             )
@@ -202,15 +163,14 @@ def 시스템초기화():
             clf.fit(X_u_학습, y_u_학습)
             업셀_모델[타겟] = clf
             업셀_정확도[타겟] = round(float(clf.score(X_u_검증, y_u_검증)), 4)
-            print(f"Upsell [{타겟}] accuracy: {업셀_정확도[타겟]}")
+            print(f"업셀 모델 [{타겟}] 정확도: {업셀_정확도[타겟]}")
 
 @애플리케이션.get("/api/metadata")
 def 메타데이터조회():
     서브카테고리목록 = sorted(데이터프레임["Subcategory"].dropna().unique().tolist()) if "Subcategory" in 데이터프레임.columns else []
-    노출_국가목록 = sorted([c for c in 국가목록 if c not in US_식별자])
     return {
-        "국가목록": 노출_국가목록,
-        "카테고리목록": sorted(카테고리목록),
+        "국가목록": [c for c in 국가목록 if c not in US_식별자],
+        "카테고리목록": 카테고리목록,
         "서브카테고리목록": 서브카테고리목록,
         "총레코드수": len(데이터프레임),
         "모델R2": 모델_r2,
@@ -227,15 +187,19 @@ def 시즌전략조회():
     결과 = {}
     for 계절 in 계절_월_매핑.keys():
         us_계절 = us_df[us_df["계절"] == 계절]
+
         if len(us_계절) == 0:
             continue
 
-        카테고리별_매출 = us_계절.groupby("Category")["Sales Amount"].sum().sort_values(ascending=False)
+        카테고리별_매출 = (
+            us_계절.groupby("Category")["Sales Amount"].sum().sort_values(ascending=False)
+        )
         추천카테고리 = 카테고리별_매출.index[0]
         us_계절_총매출 = float(카테고리별_매출.iloc[0])
-        us_월목록 = 계절_월_매핑[계절]
 
+        us_월목록 = 계절_월_매핑[계절]
         국가별분석 = []
+
         비US_국가들 = [c for c in 국가목록 if c not in US_식별자]
         for 국가 in 비US_국가들:
             국가_계절_df = 데이터프레임[
@@ -261,7 +225,8 @@ def 시즌전략조회():
 
         us_계절_카테고리_전체 = (
             us_계절.groupby("Category")["Sales Amount"]
-            .sum().reset_index()
+            .sum()
+            .reset_index()
             .rename(columns={"Sales Amount": "매출"})
             .sort_values("매출", ascending=False)
             .to_dict("records")
@@ -334,7 +299,13 @@ def 자전거서브카테고리분석():
     for 서브카테고리 in sorted(bike_서브카테고리):
         서브_구매자 = 데이터프레임[데이터프레임["Subcategory"] == 서브카테고리]
 
-        if "CustomerKey" in 데이터프레임.columns:
+        if "client_type" in 데이터프레임.columns:
+            b2c_서브 = 서브_구매자[서브_구매자["client_type"] == "B2C"]
+            유효_고객키 = pd.to_numeric(
+                b2c_서브["CustomerKey"], errors="coerce"
+            ).dropna().apply(lambda x: int(float(x))).unique()
+            유효_고객키 = [k for k in 유효_고객키 if k > 0]
+        elif "CustomerKey" in 데이터프레임.columns:
             유효_고객키 = pd.to_numeric(
                 서브_구매자["CustomerKey"], errors="coerce"
             ).dropna().apply(lambda x: int(float(x))).unique()
@@ -345,7 +316,8 @@ def 자전거서브카테고리분석():
         if len(유효_고객키) > 0:
             ck_series = pd.to_numeric(데이터프레임["CustomerKey"], errors="coerce")
             동반구매_df = 데이터프레임[
-                ck_series.isin(유효_고객키) & (데이터프레임["Category"] != "Bikes")
+                ck_series.isin(유효_고객키) &
+                (데이터프레임["Category"] != "Bikes")
             ]
         else:
             동반구매_df = 데이터프레임[데이터프레임["Category"] != "Bikes"]
@@ -379,10 +351,8 @@ def 자전거서브카테고리분석():
 
 @애플리케이션.post("/api/predict/strategy")
 def 전략예측실행(요청데이터: 시뮬레이션입력):
-    국가_arr = list(국가인코더.classes_)
-    카테고리_arr = list(카테고리인코더.classes_)
-    국가인덱스 = 국가_arr.index(요청데이터.선택국가) if 요청데이터.선택국가 in 국가_arr else 0
-    카테고리인덱스 = 카테고리_arr.index(요청데이터.선택카테고리) if 요청데이터.선택카테고리 in 카테고리_arr else 0
+    국가인덱스 = 국가목록.index(요청데이터.선택국가) if 요청데이터.선택국가 in 국가목록 else 0
+    카테고리인덱스 = 카테고리목록.index(요청데이터.선택카테고리) if 요청데이터.선택카테고리 in 카테고리목록 else 0
 
     예측입력 = pd.DataFrame([{
         "Order Quantity": 요청데이터.주문수량,
@@ -393,17 +363,8 @@ def 전략예측실행(요청데이터: 시뮬레이션입력):
         "Country_enc": 국가인덱스,
     }])
 
-    예측_마진율 = float(예측모델.predict(예측입력)[0])
-    예측_마진율 = max(0.0, min(0.95, 예측_마진율))
-
-    계절 = 계절_분류(요청데이터.월코드)
-    계절_가중 = 계절_수요_가중.get(계절, 1.0)
-    국가_가중 = 국가_가격_인덱스.get(요청데이터.선택국가, 1.0)
-    카테고리_베이스마진 = 카테고리_마진_베이스.get(요청데이터.선택카테고리, 0.40)
-
-    혼합마진 = (예측_마진율 * 0.5) + (카테고리_베이스마진 * 0.5)
-    기본매출 = 요청데이터.제품단가 * 요청데이터.주문수량
-    예측매출 = 기본매출 * 계절_가중 * 국가_가중 * (1 + 혼합마진 * 0.2)
+    예측_log_unit = float(예측모델.predict(예측입력)[0])
+    예측매출 = np.expm1(예측_log_unit) * 요청데이터.주문수량
 
     조건df = 데이터프레임[
         (데이터프레임["Country"] == 요청데이터.선택국가) &
@@ -419,13 +380,11 @@ def 전략예측실행(요청데이터: 시뮬레이션입력):
     return {
         "예측매출액": max(0.0, round(예측매출, 2)),
         "시장점유율": round(시장점유율 * 100, 1),
-        "예측마진율": round(혼합마진 * 100, 1),
     }
 
 @애플리케이션.post("/api/predict/upsell")
 def 업셀예측(요청데이터: 업셀입력):
-    국가_arr = list(국가인코더.classes_)
-    국가인덱스 = 국가_arr.index(요청데이터.선택국가) if 요청데이터.선택국가 in 국가_arr else 0
+    국가인덱스 = 국가목록.index(요청데이터.선택국가) if 요청데이터.선택국가 in 국가목록 else 0
 
     입력df = pd.DataFrame([{
         "Order Quantity": 요청데이터.주문수량,
@@ -482,24 +441,3 @@ def 업셀예측(요청데이터: 업셀입력):
         "최고추천카테고리": 최고카테고리,
         "계절": 계절,
     }
-
-@애플리케이션.get("/api/country/price_range")
-def 국가별단가범위조회():
-    결과 = {}
-    비US = [c for c in 국가목록 if c not in US_식별자]
-    for 국가 in 비US:
-        국가df = 데이터프레임[데이터프레임["Country"] == 국가]
-        cat_가격 = {}
-        for 카t in 카테고리목록:
-            sub = 국가df[국가df["Category"] == 카t]["Unit Price"]
-            if len(sub) > 0:
-                cat_가격[카t] = {
-                    "mean": round(float(sub.mean()), 2),
-                    "std": round(float(sub.std()), 2),
-                    "min": round(float(sub.min()), 2),
-                    "max": round(float(sub.max()), 2),
-                }
-            else:
-                cat_가격[카t] = {"mean": 462.0, "std": 200.0, "min": 10.0, "max": 2000.0}
-        결과[국가] = cat_가격
-    return 결과
