@@ -10,10 +10,17 @@ st.set_page_config(page_title="매출 및 예측 리포트", page_icon="◈", la
 st.markdown(CSS, unsafe_allow_html=True)
 st.markdown('<style>[data-testid="stSidebar"]{display:none!important;}[data-testid="collapsedControl"]{display:none!important;}</style>', unsafe_allow_html=True)
 
+_메타_기본값 = {"국가목록":["Australia","Canada","France","Germany","United Kingdom"],"카테고리목록":["Accessories","Bikes","Clothing","Components"],"총레코드수":0,"모델R2":0.0,"피처중요도":{},"피처수":6}
+
 @st.cache_data(ttl=60)
 def 메타조회():
-    try: return requests.get(f"{서버주소}/api/metadata", timeout=5).json()
-    except: return {"국가목록":["Australia","Canada","France","Germany","United Kingdom"],"카테고리목록":["Accessories","Bikes","Clothing","Components"],"총레코드수":0,"모델R2":0.0,"피처중요도":{},"피처수":6}
+    try:
+        r = requests.get(f"{서버주소}/api/metadata", timeout=5).json()
+        if "국가목록" not in r:
+            return _메타_기본값
+        return r
+    except:
+        return _메타_기본값
 
 @st.cache_data(ttl=300, show_spinner=False)
 def csv_로드():
@@ -34,15 +41,15 @@ def 단일예측(수량, 단가, 원가, 월, 국가, 카테고리):
 def 국가별_전체예측(수량, 단가, 원가, 월, 국가목록_t, is_reseller, 카테고리):
     결과 = []
     for 국가 in 국가목록_t:
-        try:
-            r = requests.post(f"{서버주소}/api/predict/strategy", timeout=5, json={
-                "주문수량":수량,"제품단가":float(단가),"제조원가":float(원가),
-                "월코드":월,"선택국가":국가,"선택카테고리":카테고리}).json()
-            매출 = float(r.get("예측매출액", 0.0))
-        except:
-            매출 = float(수량 * 단가 * 1.1)
         if is_reseller:
-            매출 = round(매출 * 0.85, 2)
+            매출 = int(수량 * 단가 * 0.85)
+        else:
+            try:
+                r = requests.post(f"{서버주소}/api/predict/strategy", timeout=5, json={
+                    "주문수량":수량,"제품단가":float(단가),"제조원가":float(원가),
+                    "월코드":월,"선택국가":국가,"선택카테고리":카테고리}).json()
+                매출 = float(r.get("예측매출액", 0.0))
+            except: 매출 = float(수량 * 단가 * 1.1)
         총원가 = 수량 * 원가
         순수익 = 매출 - 총원가
         결과.append({"국가":국가,"예측매출":round(매출,2),"총원가":총원가,"순수익":round(순수익,2)})
@@ -262,9 +269,9 @@ with 탭2:
     서브표시 = 선택서브카테고리 if 선택서브카테고리 not in [t("전체 (평균)"), "전체 (평균)"] else 선택카테고리
 
     if is_reseller:
-        예측매출 = int(단일예측(수량,단가,원가,월,기본국가,선택카테고리) * 0.85)
+        예측매출 = int(수량 * 단가 * 0.85)
         단가after = int(단가 * 0.85)
-        매출출처 = f"{t('Random Forest AI 모델 예측')} + {t('도매할인 15%')} ({서브표시})"
+        매출출처 = t(f"도매 단가 기반 (수량 {수량} × 단가 ${단가:,} × 도매할인 85% = 실제단가 ${단가after:,})")
     else:
         예측매출 = int(단일예측(수량,단가,원가,월,기본국가,선택카테고리))
         매출출처 = f"{t('Random Forest AI 모델 예측')} ({서브표시})"
@@ -300,7 +307,7 @@ with 탭2:
     with c2:
         if is_reseller:
             qty_range = list(range(5,max(수량+50,60),max(1,수량//8)))
-            rev=[int(단일예측(q,단가,원가,월,기본국가,선택카테고리)*0.85) for q in qty_range]
+            rev=[int(q*단가*0.85) for q in qty_range]
             cost_=[int(q*원가) for q in qty_range]
             profit_=[r-c for r,c in zip(rev,cost_)]
             fig=go.Figure()

@@ -10,10 +10,17 @@ st.set_page_config(page_title="시즌별 전략 추천", page_icon="◈", layout
 st.markdown(CSS, unsafe_allow_html=True)
 st.markdown('<style>[data-testid="stSidebar"]{display:none!important;}[data-testid="collapsedControl"]{display:none!important;}</style>', unsafe_allow_html=True)
 
+_메타_기본값 = {"국가목록":["Australia","Canada","France","Germany","United Kingdom"],"카테고리목록":["Accessories","Bikes","Clothing","Components"]}
+
 @st.cache_data(ttl=60)
 def 메타조회():
-    try: return requests.get(f"{서버주소}/api/metadata", timeout=5).json()
-    except: return {"국가목록":["Australia","Canada","France","Germany","United Kingdom"],"카테고리목록":["Accessories","Bikes","Clothing","Components"]}
+    try:
+        r = requests.get(f"{서버주소}/api/metadata", timeout=5).json()
+        if "국가목록" not in r:
+            return _메타_기본값
+        return r
+    except:
+        return _메타_기본값
 
 @st.cache_data(ttl=300, show_spinner=False)
 def csv_로드():
@@ -37,16 +44,10 @@ def 시즌별_B2C_예측(수량, 단가, 원가, 대표월, 국가목록_t, 카�
         결과.append({"국가":국가,"예측매출":round(매출,2),"순수익":round(매출*(1-원가비율),2)})
     return pd.DataFrame(결과)
 
-def 시즌별_B2B_예측(수량, 단가, 원가, 국가목록_t, 대표월, 카테고리):
+def 시즌별_B2B_예측(수량, 단가, 원가, 국가목록_t):
     결과 = []
     for 국가 in 국가목록_t:
-        try:
-            r = requests.post(f"{서버주소}/api/predict/strategy", timeout=5, json={
-                "주문수량":수량,"제품단가":float(단가),"제조원가":float(원가),
-                "월코드":대표월,"선택국가":국가,"선택카테고리":카테고리}).json()
-            매출 = round(float(r.get("예측매출액", 0.0)) * 0.85, 2)
-        except:
-            매출 = round(수량 * 단가 * 0.85, 2)
+        매출 = round(수량*단가*0.85, 2)
         결과.append({"국가":국가,"예측매출":매출,"순수익":round(매출-수량*원가,2)})
     return pd.DataFrame(결과)
 
@@ -184,7 +185,7 @@ with 탭1:
 
     with st.spinner(t("시즌별 예측 계산 중…")):
         if is_b2b:
-            pred_df = 시즌별_B2B_예측(pred_수량, pred_단가, pred_원가, tuple(분析국가), 대표월, 선택카테고리)
+            pred_df = 시즌별_B2B_예측(pred_수량, pred_단가, pred_원가, tuple(분析국가))
             매출방식 = f"{t('도매 단가 기반')} — {서브표시}"
         else:
             pred_df = 시즌별_B2C_예측(pred_수량, pred_단가, pred_원가, 대표월, tuple(분析국가), 선택카테고리)
